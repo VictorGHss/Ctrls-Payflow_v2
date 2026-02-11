@@ -3,7 +3,7 @@ Testes para idempotência e processamento de recibos.
 """
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -40,9 +40,10 @@ def test_account(test_db):
 @pytest.fixture
 def test_token(test_db, test_account):
     """Cria um token OAuth criptografado para testes."""
-    from app.crypto import CryptoManager
     import base64
     import secrets
+
+    from app.crypto import CryptoManager
 
     # Chave de teste
     key = base64.urlsafe_b64encode(secrets.token_bytes(32))
@@ -99,7 +100,7 @@ def test_is_receipt_already_sent_when_not_exists(test_db, test_account):
         is_sent = processor.is_receipt_already_sent(
             test_account.account_id,
             "inst_new",
-            "rec_new",
+            "https://example.com/rec_new",
         )
         assert is_sent is False
 
@@ -116,8 +117,7 @@ def test_idempotency_duplicate_receipt_not_resent(test_db, test_account):
         sent1 = SentReceipt(
             account_id=test_account.account_id,
             installment_id="inst_001",
-            receipt_id="rec_001",
-            receipt_url="https://example.com/rec_001",
+            attachment_url="https://example.com/rec_001",
             doctor_email="doctor@example.com",
             sent_at=datetime.now(timezone.utc),
         )
@@ -128,7 +128,7 @@ def test_idempotency_duplicate_receipt_not_resent(test_db, test_account):
         is_already_sent = processor.is_receipt_already_sent(
             test_account.account_id,
             "inst_001",
-            "rec_001",
+            "https://example.com/rec_001",
         )
         assert is_already_sent is True
 
@@ -137,7 +137,6 @@ def test_idempotency_duplicate_receipt_not_resent(test_db, test_account):
             test_db.query(SentReceipt)
             .filter(
                 SentReceipt.account_id == test_account.account_id,
-                SentReceipt.receipt_id == "rec_001",
             )
             .count()
         )
@@ -160,11 +159,7 @@ def test_log_email_attempt(test_db, test_account):
         )
 
         # Verificar que log foi criado
-        log = (
-            test_db.query(EmailLog)
-            .filter(EmailLog.receipt_id == "rec_001")
-            .first()
-        )
+        log = test_db.query(EmailLog).filter(EmailLog.receipt_id == "rec_001").first()
         assert log is not None
         assert log.status == "sent"
         assert log.doctor_email == "doctor@example.com"
@@ -200,3 +195,6 @@ def test_doctor_fallback_resolver_no_email_found(test_db, test_account):
     email = resolver.resolve("Cliente Desconhecido", None)
     assert email is None
 
+
+# Test removed: PaymentProcessor doesn't have a send_receipt method anymore.
+# The functionality is now handled through _process_installment which is an internal method.

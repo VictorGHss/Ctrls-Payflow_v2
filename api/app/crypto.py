@@ -3,11 +3,8 @@ Criptografia de segredos em repouso.
 """
 
 import base64
-from typing import Optional
 
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
 
 from app.config import get_settings
 
@@ -23,7 +20,7 @@ class CryptoManager:
             if len(self._key) != 32:
                 raise ValueError("MASTER_KEY deve ser 32 bytes (base64 encoded)")
         except Exception as e:
-            raise RuntimeError(f"Erro ao decodificar MASTER_KEY: {e}")
+            raise RuntimeError(f"Erro ao decodificar MASTER_KEY: {e}") from e
 
     def encrypt(self, plaintext: str) -> str:
         """
@@ -58,10 +55,9 @@ class CryptoManager:
             plaintext = f.decrypt(ciphertext.encode("utf-8"))
             return plaintext.decode("utf-8")
         except Exception as e:
-            raise RuntimeError(f"Erro ao decriptografar: {e}")
+            raise RuntimeError(f"Erro ao decriptografar: {e}") from e
 
 
 def get_crypto_manager() -> CryptoManager:
     """Retorna instância do gerenciador de criptografia."""
     return CryptoManager()
-

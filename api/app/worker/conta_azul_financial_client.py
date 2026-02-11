@@ -4,18 +4,17 @@ Consulta contas a receber, parcelas e detalhes de pagamento.
 """
 
 import asyncio
-import base64
 import ipaddress
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 from app.config import get_settings
@@ -26,6 +25,7 @@ logger = setup_logging(__name__)
 
 class RateLimitError(Exception):
     """Erro de rate limit (429)."""
+
     pass
 
 
@@ -169,8 +169,10 @@ class ContaAzulFinancialClient:
 
         if changed_since:
             if isinstance(changed_since, datetime):
-                changed_since = changed_since.isoformat()
-            params["changedSince"] = changed_since
+                changed_since_param = changed_since.isoformat()
+            else:
+                changed_since_param = str(changed_since)
+            params["changedSince"] = changed_since_param
 
         if status:
             params["status"] = status
@@ -283,6 +285,40 @@ class ContaAzulFinancialClient:
             logger.error(f"Erro ao buscar URL de recibo: {e}")
             return None
 
+    def _is_ip_address_safe(self, hostname: str) -> bool:
+        """
+        Verifica se um endereço IP é seguro (não é privado/loopback/etc).
+
+        Args:
+            hostname: hostname para verificar
+
+        Returns:
+            True se seguro (ou não é IP), False se IP perigoso
+        """
+        try:
+            ip = ipaddress.ip_address(hostname)
+
+            if ip.is_loopback:
+                logger.error(f"SSRF: IP loopback rejeitado: {ip}")
+                return False
+
+            if ip.is_private:
+                logger.error(f"SSRF: IP privado rejeitado: {ip}")
+                return False
+
+            if ip.is_multicast:
+                logger.error(f"SSRF: IP multicast rejeitado: {ip}")
+                return False
+
+            if ip.is_reserved:
+                logger.error(f"SSRF: IP reservado rejeitado: {ip}")
+                return False
+
+            return True
+        except ValueError:
+            # Não é um IP, é um hostname (OK)
+            return True
+
     def _validate_receipt_url(self, url: str) -> bool:
         """
         Valida URL de recibo contra SSRF (Server-Side Request Forgery).
@@ -308,7 +344,9 @@ class ContaAzulFinancialClient:
 
             # 1. Apenas HTTPS (não HTTP, ftp, etc)
             if parsed.scheme != "https":
-                logger.error(f"SSRF: Esquema não-HTTPS rejeitado: {parsed.scheme}://{parsed.netloc}")
+                logger.error(
+                    f"SSRF: Esquema não-HTTPS rejeitado: {parsed.scheme}://{parsed.netloc}"
+                )
                 return False
 
             # 2. Validar hostname (permitir apenas domínios Conta Azul)
@@ -329,28 +367,8 @@ class ContaAzulFinancialClient:
                 return False
 
             # 3. Rejeitar IPs privados/loopback/multicast
-            try:
-                ip = ipaddress.ip_address(hostname)
-
-                if ip.is_loopback:
-                    logger.error(f"SSRF: IP loopback rejeitado: {ip}")
-                    return False
-
-                if ip.is_private:
-                    logger.error(f"SSRF: IP privado rejeitado: {ip}")
-                    return False
-
-                if ip.is_multicast:
-                    logger.error(f"SSRF: IP multicast rejeitado: {ip}")
-                    return False
-
-                if ip.is_reserved:
-                    logger.error(f"SSRF: IP reservado rejeitado: {ip}")
-                    return False
-
-            except ValueError:
-                # Não é um IP, é um hostname (OK)
-                pass
+            if not self._is_ip_address_safe(hostname):
+                return False
 
             logger.debug(f"URL validada: {url[:60]}...")
             return True
@@ -408,4 +426,3 @@ class ContaAzulFinancialClient:
         except Exception as e:
             logger.error(f"Erro ao baixar recibo: {e}")
             return None
-

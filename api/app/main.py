@@ -2,13 +2,12 @@
 FastAPI main application.
 """
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_db_session, init_db
+from app.database import init_db
 from app.logging import setup_logging
 from app.routes_health import router as health_router
 from app.routes_oauth_new import router as oauth_router
@@ -70,4 +69,3 @@ async def startup_event():
 async def shutdown_event():
     """Event disparado no encerramento."""
     logger.info("Aplicação encerrada")
-

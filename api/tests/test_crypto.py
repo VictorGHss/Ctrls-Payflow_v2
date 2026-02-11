@@ -3,6 +3,7 @@ Testes para criptografia e decriptografia.
 """
 
 import base64
+
 import pytest
 
 from app.crypto import CryptoManager
@@ -13,6 +14,7 @@ def crypto_manager():
     """Cria um CryptoManager com chave de teste."""
     # Gerar 32 bytes aleatórios e codificar em base64
     import secrets
+
     key = base64.urlsafe_b64encode(secrets.token_bytes(32))
 
     # Mock do settings
@@ -20,6 +22,7 @@ def crypto_manager():
         MASTER_KEY = key.decode("utf-8")
 
     import app.config
+
     original_get_settings = app.config.get_settings
     app.config.get_settings = lambda: MockSettings()
 
@@ -82,4 +85,3 @@ def test_encrypt_unicode(crypto_manager):
     decrypted = crypto_manager.decrypt(encrypted)
 
     assert decrypted == plaintext
-

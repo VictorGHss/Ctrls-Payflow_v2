@@ -4,7 +4,7 @@ Orquestra o fluxo: checkpoint → consulta → validação → download → emai
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -12,10 +12,9 @@ from app.config import get_settings
 from app.crypto import get_crypto_manager
 from app.database import (
     AzulAccount,
-    OAuthToken,
+    EmailLog,
     FinancialCheckpoint,
     SentReceipt,
-    EmailLog,
 )
 from app.logging import setup_logging
 from app.services.mailer import MailerService
@@ -50,9 +49,7 @@ class FinancialProcessor:
         """
         try:
             accounts = (
-                self.db.query(AzulAccount)
-                .filter(AzulAccount.is_active == 1)
-                .all()
+                self.db.query(AzulAccount).filter(AzulAccount.is_active == 1).all()
             )
             return accounts
         except Exception as e:
@@ -176,12 +173,16 @@ class FinancialProcessor:
             True se sucesso, False se erro
         """
         receivable_id = receivable.get("id")
+        if not receivable_id:
+            logger.warning("Receivable sem ID; ignorando")
+            return False
+        receivable_id_short = receivable_id[:10]
         customer_name = receivable.get("customerName", "Cliente")
         amount = receivable.get("totalAmount", 0)
-        payment_date = receivable.get("receivedDate")
+        _payment_date = receivable.get("receivedDate")  # Não usado
 
         logger.debug(
-            f"Processando receivable {receivable_id[:10]}... "
+            f"Processando receivable {receivable_id_short}... "
             f"({customer_name}, R${amount})"
         )
 
@@ -196,7 +197,7 @@ class FinancialProcessor:
         installments = details.get("installments", [])
 
         if not installments:
-            logger.warning(f"Nenhuma parcela encontrada para {receivable_id[:10]}...")
+            logger.warning(f"Nenhuma parcela encontrada para {receivable_id_short}...")
             return False
 
         # Processar cada parcela
@@ -237,19 +238,25 @@ class FinancialProcessor:
             downloader: Download manager
         """
         installment_id = installment.get("id")
+        if not installment_id:
+            logger.warning("Parcela sem ID; ignorando")
+            return
+        installment_id_short = installment_id[:10]
         status = installment.get("status")
         payment_id = installment.get("paymentId")
-        amount = installment.get("amount", 0)
-        payment_date = installment.get("paidDate") or datetime.now(timezone.utc)
+        _amount = installment.get("amount", 0)  # Não usado
+        _payment_date = installment.get("paidDate") or datetime.now(
+            timezone.utc
+        )  # Não usado
 
         logger.debug(
-            f"Processando parcela {installment_id[:10]}... "
+            f"Processando parcela {installment_id_short}... "
             f"(status={status}, payment_id={payment_id})"
         )
 
         # Validar que é pagamento/baixa
         if status not in ("received", "paid", "settled"):
-            logger.debug(f"Parcela {installment_id[:10]}... não está recebida")
+            logger.debug(f"Parcela {installment_id_short}... não está recebida")
             return
 
         # Buscar detalhes da parcela
@@ -263,7 +270,9 @@ class FinancialProcessor:
         attachments = inst_details.get("attachments", [])
 
         if not attachments:
-            logger.debug(f"Nenhum anexo encontrado para parcela {installment_id[:10]}...")
+            logger.debug(
+                f"Nenhum anexo encontrado para parcela {installment_id_short}..."
+            )
             return
 
         # Processar cada anexo
@@ -308,13 +317,20 @@ class FinancialProcessor:
         attachment_id = attachment.get("id")
         attachment_url = attachment.get("url")
 
+        if not installment_id or not attachment_id:
+            logger.warning("Anexo ou parcela sem ID; ignorando")
+            return
+
+        attachment_id_short = attachment_id[:10]
+        installment_id_short = installment_id[:10]
+
         logger.debug(
-            f"Processando anexo {attachment_id[:10]}... "
-            f"(installment={installment_id[:10]}...)"
+            f"Processando anexo {attachment_id_short}... "
+            f"(installment={installment_id_short}...)"
         )
 
         if not attachment_url:
-            logger.warning(f"Nenhuma URL de anexo para {attachment_id[:10]}...")
+            logger.warning(f"Nenhuma URL de anexo para {attachment_id_short}...")
             return
 
         # Verificar idempotência
@@ -325,7 +341,7 @@ class FinancialProcessor:
         ):
             logger.debug(
                 f"Recibo já enviado anteriormente para "
-                f"{installment_id[:10]}... (idempotência)"
+                f"{installment_id_short}... (idempotência)"
             )
             return
 
@@ -340,7 +356,7 @@ class FinancialProcessor:
 
         # Validar PDF
         if not downloader.validate_receipt(pdf_bytes):
-            logger.error(f"PDF inválido para {attachment_id[:10]}...")
+            logger.error(f"PDF inválido para {attachment_id_short}...")
             return
 
         # Obter hash para deduplicação
@@ -394,7 +410,7 @@ class FinancialProcessor:
 
             logger.info(
                 f"✓ Recibo enviado com sucesso para {doctor_email} "
-                f"(parcela {installment_id[:10]}...)"
+                f"(parcela {installment_id_short}...)"
             )
         else:
             logger.error(f"Falha ao enviar email para {doctor_email}")
@@ -418,9 +434,6 @@ class FinancialProcessor:
 
         if not checkpoint:
             # Criar novo com janela de segurança
-            safety_window = timedelta(
-                minutes=self.settings.POLLING_SAFETY_WINDOW_MINUTES
-            )
             default_date = datetime.now(timezone.utc) - timedelta(days=30)
 
             checkpoint = FinancialCheckpoint(
@@ -441,9 +454,7 @@ class FinancialProcessor:
             return datetime.now(timezone.utc) - timedelta(days=30)
 
         # Aplicar janela de segurança (voltar N minutos)
-        safety_window = timedelta(
-            minutes=self.settings.POLLING_SAFETY_WINDOW_MINUTES
-        )
+        safety_window = timedelta(minutes=self.settings.POLLING_SAFETY_WINDOW_MINUTES)
         return checkpoint.last_processed_changed_at - safety_window
 
     def _update_checkpoint(self, checkpoint: FinancialCheckpoint) -> None:
@@ -493,7 +504,7 @@ class FinancialProcessor:
                 doctor_email=doctor_email,
                 sent_at=datetime.now(timezone.utc),
                 receipt_hash=receipt_hash,
-                metadata=metadata,
+                receipt_metadata=metadata,
             )
 
             self.db.add(sent_receipt)
@@ -558,7 +569,7 @@ class FinancialProcessor:
         account_id: str,
         customer_name: str,
         installment: dict,
-    ) -> str:
+    ) -> Optional[str]:
         """
         Resolver email do médico.
 
@@ -577,9 +588,8 @@ class FinancialProcessor:
         if hasattr(self.settings, "DOCTORS_FALLBACK_JSON"):
             try:
                 import json
-                fallback_map = json.loads(
-                    self.settings.DOCTORS_FALLBACK_JSON or "{}"
-                )
+
+                fallback_map = json.loads(self.settings.DOCTORS_FALLBACK_JSON or "{}")
                 doctor_email = fallback_map.get(customer_name)
                 if doctor_email:
                     logger.debug(f"Email do fallback: {doctor_email}")
@@ -587,8 +597,5 @@ class FinancialProcessor:
             except Exception as e:
                 logger.debug(f"Erro ao carregar fallback: {e}")
 
-        logger.warning(
-            f"Não conseguiu resolver email para {customer_name}"
-        )
+        logger.warning(f"Não conseguiu resolver email para {customer_name}")
         return None
-

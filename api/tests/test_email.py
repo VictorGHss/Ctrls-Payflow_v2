@@ -2,7 +2,6 @@
 Testes para parsing de payload e email mockado.
 """
 
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +12,7 @@ from app.email_service import EmailService
 @pytest.fixture
 def mock_settings():
     """Mock das configurações SMTP."""
+
     class MockSettings:
         SMTP_HOST = "smtp.test.com"
         SMTP_PORT = 587
@@ -183,4 +183,3 @@ def test_email_service_multipart_message(mock_settings):
 
             # Verificar que foi chamado com uma mensagem
             assert mock_server.send_message.called
-

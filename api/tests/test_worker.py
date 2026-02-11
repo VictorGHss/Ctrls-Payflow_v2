@@ -2,12 +2,14 @@
 Testes para Worker - Idempotência e Checkpoint
 """
 
-import pytest
 from datetime import datetime, timedelta, timezone
+
+import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from app.database import Base, AzulAccount, FinancialCheckpoint, SentReceipt
+from app.database import AzulAccount, Base, FinancialCheckpoint, SentReceipt
 from app.worker.processor import FinancialProcessor
 
 
@@ -84,6 +86,7 @@ def test_checkpoint_reuse(processor, test_account, test_db):
 
     # Aguardar um pouco
     import time
+
     time.sleep(0.1)
 
     # Buscar novamente
@@ -208,7 +211,7 @@ def test_idempotency_unique_constraint(processor, test_account, test_db):
     )
 
     # Tentar registrar novamente (deve falhar com violação de constraint)
-    with pytest.raises(Exception):  # IntegrityError
+    with pytest.raises(IntegrityError):
         processor._register_sent_receipt(
             account_id,
             installment_id,
@@ -308,9 +311,7 @@ def test_register_sent_receipt_hash(processor, test_account, test_db):
     )
 
     sent_receipt = (
-        test_db.query(SentReceipt)
-        .filter(SentReceipt.account_id == account_id)
-        .first()
+        test_db.query(SentReceipt).filter(SentReceipt.account_id == account_id).first()
     )
 
     assert sent_receipt.receipt_hash == receipt_hash
@@ -360,4 +361,3 @@ def test_get_active_accounts(test_db):
         assert "active_1" in account_ids
         assert "active_2" in account_ids
         assert "inactive_1" not in account_ids
-

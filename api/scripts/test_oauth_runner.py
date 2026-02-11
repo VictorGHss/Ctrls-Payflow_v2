@@ -10,4 +10,3 @@ Ou com coverage:
 
 # Este arquivo serve como exemplo de uso
 # Veja tests/test_oauth.py para os testes implementados
-

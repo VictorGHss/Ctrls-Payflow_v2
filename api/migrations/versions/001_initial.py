@@ -6,9 +6,9 @@ Revises:
 Create Date: 2026-02-10
 
 """
-from alembic import op
-import sqlalchemy as sa
 
+import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "001_initial"
@@ -64,4 +64,3 @@ def downgrade() -> None:
     op.drop_table("azul_accounts")
     op.drop_index("ix_oauth_tokens_account_id", table_name="oauth_tokens")
     op.drop_table("oauth_tokens")
-

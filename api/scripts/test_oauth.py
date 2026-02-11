@@ -43,7 +43,7 @@ def test_oauth_flow() -> None:
         print("Código não fornecido")
         return
 
-    print(f"\n5. Trocando código por token...")
+    print("\n5. Trocando código por token...")
 
     try:
         response = httpx.post(
@@ -62,14 +62,16 @@ def test_oauth_flow() -> None:
         token_data = response.json()
 
         print("\n6. Tokens recebidos:")
-        print(json.dumps(
-            {
-                "access_token": token_data.get("access_token")[:20] + "...",
-                "refresh_token": token_data.get("refresh_token")[:20] + "...",
-                "expires_in": token_data.get("expires_in"),
-            },
-            indent=2,
-        ))
+        print(
+            json.dumps(
+                {
+                    "access_token": token_data.get("access_token")[:20] + "...",
+                    "refresh_token": token_data.get("refresh_token")[:20] + "...",
+                    "expires_in": token_data.get("expires_in"),
+                },
+                indent=2,
+            )
+        )
 
         # 7. Testar acesso à API
         print("\n7. Testando acesso à API...")
@@ -95,4 +97,3 @@ def test_oauth_flow() -> None:
 
 if __name__ == "__main__":
     test_oauth_flow()
-

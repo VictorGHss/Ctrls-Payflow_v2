@@ -5,8 +5,6 @@ Serviço independente que consulta periodicamente por contas a receber alteradas
 
 import asyncio
 import sys
-from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -33,8 +31,10 @@ async def worker_loop():
     logger.info("=" * 80)
 
     while True:
+        db: Session | None = None
         try:
-            db: Session = SessionLocal()
+            db = SessionLocal()
+            assert db is not None, "Failed to create database session"
             processor = FinancialProcessor(db)
 
             # Buscar e processar contas ativas
@@ -83,10 +83,11 @@ async def worker_loop():
             logger.error(f"Erro no loop de polling: {e}", exc_info=True)
 
         finally:
-            try:
-                db.close()
-            except:
-                pass
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
             # Aguardar próximo ciclo
             sleep_time = settings.POLLING_INTERVAL_SECONDS
@@ -110,4 +111,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

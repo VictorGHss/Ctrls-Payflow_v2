@@ -6,8 +6,7 @@ import smtplib
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from app.config import get_settings
 from app.logging import setup_logging
@@ -64,7 +63,9 @@ class EmailService:
             # Adicionar PDF se fornecido
             if pdf_content:
                 attachment = MIMEApplication(pdf_content, Name=pdf_filename)
-                attachment["Content-Disposition"] = f"attachment; filename={pdf_filename}"
+                attachment["Content-Disposition"] = (
+                    f"attachment; filename={pdf_filename}"
+                )
                 msg.attach(attachment)
                 logger.info(f"Anexo {pdf_filename} adicionado ao email")
 
@@ -134,4 +135,3 @@ Sistema PayFlow
             pdf_content=pdf_content,
             pdf_filename=f"recibo_{customer_name.replace(' ', '_')}.pdf",
         )
-

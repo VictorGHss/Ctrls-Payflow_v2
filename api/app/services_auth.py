@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.crypto import get_crypto_manager
-from app.database import OAuthToken, AzulAccount
+from app.database import AzulAccount, OAuthToken
 from app.logging import setup_logging
 
 logger = setup_logging(__name__)
@@ -22,10 +22,12 @@ logger = setup_logging(__name__)
 class ContaAzulAuthService:
     """Gerencia o fluxo OAuth2 Authorization Code com Conta Azul."""
 
-    SCOPES = "accounts.read installments.read receipts.read"
-    TOKEN_URL = "https://accounts.contaazul.com/oauth/token"
-    AUTHORIZE_URL = "https://accounts.contaazul.com/oauth/authorize"
-    API_URL = "https://api.contaazul.com/v1/account"
+    # URLs e scope conforme painel oficial da Conta Azul (auth.contaazul.com)
+    # Scope: openid profile aws.cognito.signin.user.admin
+    SCOPES = "openid profile aws.cognito.signin.user.admin"
+    AUTHORIZE_URL = "https://auth.contaazul.com/login"
+    TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
+    API_URL = "https://api.contaazul.com/v1/me"
 
     def __init__(self, db: Session):
         """
@@ -314,7 +316,7 @@ class ContaAzulAuthService:
                 expires_in = token_data.get("expires_in", 3600)
 
                 if not new_access_token:
-                    logger.error(f"Novo access_token não retornado")
+                    logger.error("Novo access_token não retornado")
                     return None
 
                 # Criptografar novos tokens
@@ -373,4 +375,3 @@ class ContaAzulAuthService:
         logger.warning(f"Token expirado para {account_id[:10]}..., renovando...")
         logger.info("Use refresh_access_token() para renovação async")
         return None
-

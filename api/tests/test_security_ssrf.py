@@ -2,8 +2,9 @@
 Testes de Segurança - Validação de SSRF
 """
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from app.worker.conta_azul_financial_client import ContaAzulFinancialClient
 
@@ -12,6 +13,7 @@ from app.worker.conta_azul_financial_client import ContaAzulFinancialClient
 def client():
     """Client para testes."""
     with patch("app.worker.conta_azul_financial_client.get_settings") as mock_settings:
+
         class MockSettings:
             SMTP_TIMEOUT = 10
 
@@ -69,7 +71,9 @@ def test_ssrf_invalid_domain(client):
     """❌ Rejeitar domínios não-autorizados."""
     assert not client._validate_receipt_url("https://google.com/attachment")
     assert not client._validate_receipt_url("https://attacker.com/")
-    assert not client._validate_receipt_url("https://example.contaazul.com.attacker.com/")
+    assert not client._validate_receipt_url(
+        "https://example.contaazul.com.attacker.com/"
+    )
 
 
 def test_ssrf_empty_url(client):
@@ -120,7 +124,9 @@ def test_ssrf_valid_with_port(client):
 
 def test_ssrf_valid_with_query(client):
     """✅ Aceitar com query params."""
-    assert client._validate_receipt_url("https://api.contaazul.com/file?id=123&token=abc")
+    assert client._validate_receipt_url(
+        "https://api.contaazul.com/file?id=123&token=abc"
+    )
 
 
 def test_ssrf_valid_long_url(client):
@@ -177,4 +183,3 @@ def test_allowed_domains_configured(client):
     assert len(client.ALLOWED_RECEIPT_DOMAINS) > 0
     assert "api.contaazul.com" in client.ALLOWED_RECEIPT_DOMAINS
     assert "cdn.contaazul.com" in client.ALLOWED_RECEIPT_DOMAINS
-

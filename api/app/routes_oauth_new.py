@@ -2,13 +2,15 @@
 Rotas OAuth2 Authorization Code para Conta Azul.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, RedirectResponse
+from collections.abc import Generator
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db_session, init_db
+from app.config import get_settings
+from app.database import init_db
 from app.logging import setup_logging
 from app.services_auth import ContaAzulAuthService
-from app.config import get_settings
 
 logger = setup_logging(__name__)
 
@@ -17,7 +19,7 @@ settings = get_settings()
 engine, SessionLocal = init_db(settings.DATABASE_URL)
 
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     """Dependency para obter sessão do banco."""
     db = SessionLocal()
     try:
@@ -41,7 +43,7 @@ async def connect(db: Session = Depends(get_db)):
     auth_service = ContaAzulAuthService(db)
     auth_url, state = auth_service.generate_authorization_url()
 
-    logger.info(f"Iniciando fluxo OAuth - redirecionando para Conta Azul")
+    logger.info("Iniciando fluxo OAuth - redirecionando para Conta Azul")
     return RedirectResponse(url=auth_url)
 
 
@@ -69,9 +71,7 @@ async def oauth_callback(
     """
     # Verificar se houve erro
     if error:
-        logger.warning(
-            f"Erro no callback OAuth: {error} - {error_description}"
-        )
+        logger.warning(f"Erro no callback OAuth: {error} - {error_description}")
         raise HTTPException(
             status_code=400,
             detail=f"Erro de autenticação: {error_description or error}",
@@ -79,10 +79,7 @@ async def oauth_callback(
 
     if not code:
         logger.error("Callback recebido sem authorization code")
-        raise HTTPException(
-            status_code=400,
-            detail="Authorization code ausente"
-        )
+        raise HTTPException(status_code=400, detail="Authorization code ausente")
 
     auth_service = ContaAzulAuthService(db)
 
@@ -92,10 +89,7 @@ async def oauth_callback(
 
     if not token_data:
         logger.error("Falha na etapa 1: exchange_code_for_tokens")
-        raise HTTPException(
-            status_code=500,
-            detail="Erro ao obter tokens"
-        )
+        raise HTTPException(status_code=500, detail="Erro ao obter tokens")
 
     access_token = token_data.get("access_token")
     refresh_token = token_data.get("refresh_token")
@@ -103,10 +97,7 @@ async def oauth_callback(
 
     if not access_token or not refresh_token:
         logger.error("Tokens inválidos recebidos")
-        raise HTTPException(
-            status_code=500,
-            detail="Tokens inválidos"
-        )
+        raise HTTPException(status_code=500, detail="Tokens inválidos")
 
     logger.debug(f"Tokens recebidos (expires_in={expires_in}s)")
 
@@ -116,10 +107,7 @@ async def oauth_callback(
 
     if not account_info:
         logger.error("Falha na etapa 2: get_account_info")
-        raise HTTPException(
-            status_code=500,
-            detail="Erro ao buscar dados da conta"
-        )
+        raise HTTPException(status_code=500, detail="Erro ao buscar dados da conta")
 
     account_id = account_info.get("id")
     owner_email = account_info.get("email")
@@ -128,10 +116,7 @@ async def oauth_callback(
 
     if not account_id:
         logger.error("Conta sem ID")
-        raise HTTPException(
-            status_code=500,
-            detail="Dados da conta inválidos"
-        )
+        raise HTTPException(status_code=500, detail="Dados da conta inválidos")
 
     logger.debug(f"Conta encontrada: {account_id[:10]}... ({company_name})")
 
@@ -147,10 +132,7 @@ async def oauth_callback(
         company_name=company_name,
     ):
         logger.error("Falha na etapa 3: save_tokens")
-        raise HTTPException(
-            status_code=500,
-            detail="Erro ao salvar autenticação"
-        )
+        raise HTTPException(status_code=500, detail="Erro ao salvar autenticação")
 
     logger.info(
         f"✅ Autenticação concluída com sucesso! "
@@ -165,4 +147,3 @@ async def oauth_callback(
         "owner_email": owner_email,
         "expires_in": expires_in,
     }
-

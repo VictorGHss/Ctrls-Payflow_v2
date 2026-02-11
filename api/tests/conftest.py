@@ -32,4 +32,3 @@ def mock_env(monkeypatch):
     monkeypatch.setenv("SMTP_FROM", "test@test.com")
     monkeypatch.setenv("SMTP_REPLY_TO", "reply@test.com")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
-

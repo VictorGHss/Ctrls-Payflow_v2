@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     CONTA_AZUL_CLIENT_SECRET: str
     CONTA_AZUL_REDIRECT_URI: str
     CONTA_AZUL_API_BASE_URL: str = "https://api.contaazul.com"
-    CONTA_AZUL_AUTH_URL: str = "https://accounts.contaazul.com/oauth/authorize"
-    CONTA_AZUL_TOKEN_URL: str = "https://accounts.contaazul.com/oauth/token"
+    CONTA_AZUL_AUTH_URL: str = "https://auth.contaazul.com/login"
+    CONTA_AZUL_TOKEN_URL: str = "https://auth.contaazul.com/oauth2/token"
 
     # ===== Segurança =====
     MASTER_KEY: str  # Base64 encoded 32 bytes
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     SMTP_FROM: str
     SMTP_REPLY_TO: str = ""
     SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False  # Para porta 465
     SMTP_TIMEOUT: int = 10  # Timeout em segundos
 
     # ===== Polling =====
@@ -73,5 +74,4 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Retorna instância única das configurações."""
-    return Settings()
-
+    return Settings()  # pyright: ignore[reportCallIssue]

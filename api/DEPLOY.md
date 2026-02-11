@@ -1,275 +1,358 @@
-# 🚀 DEPLOY - Guia Completo
+# 🚀 Deploy - PayFlow API
 
-Guia passo-a-passo para fazer deploy do PayFlow com Docker e Cloudflare Tunnel + Access.
+Guia completo de deploy em produção com Docker, Cloudflare Tunnel e Access (Google SSO).
 
 ## 📋 Pré-requisitos
 
-### No seu Servidor Local (Home Server/VPS)
+### Servidor (Home Server / VPS / Cloud)
 - Docker instalado (`docker --version`)
 - Docker Compose instalado (`docker-compose --version`)
-- Git (para clonar o repositório)
-- Acesso sudo/root
+- Git
+- Acesso SSH
 
-### Na Cloudflare
-- Conta Cloudflare ativa
+### Cloudflare
+- Conta ativa
 - Domínio registrado e apontando para Cloudflare
-- (Opcional) Google OAuth configurado
+- (Opcional) Zero Trust habilitado
 
-## 🔧 Passo 1: Clonar Repositório
+---
+
+## 🔧 Passo 1: Preparar Servidor
 
 ```bash
-# No seu servidor
+# SSH no servidor
+ssh user@seu-servidor.com
+
+# Instalar Docker (se necessário)
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# Instalar Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Verificar
+docker --version
+docker-compose --version
+```
+
+---
+
+## 📦 Passo 2: Clonar Repositório
+
+```bash
+# No servidor
+cd ~
 git clone https://github.com/seu-usuario/payflow.git
 cd payflow/api
 ```
 
-## 📝 Passo 2: Configurar .env
+---
+
+## 🔐 Passo 3: Configurar .env
 
 ```bash
+# Copiar exemplo
 cp .env.example .env
-nano .env  # ou editor de sua preferência
+
+# Editar
+nano .env  # ou vim, vi, etc
 ```
 
-Preencher:
+### .env Produção
+
 ```env
-# Conta Azul
-CONTA_AZUL_CLIENT_ID=seu_client_id
-CONTA_AZUL_CLIENT_SECRET=seu_client_secret
-CONTA_AZUL_REDIRECT_URI=https://seu-dominio.com/oauth/callback
+# === Conta Azul ===
+CONTA_AZUL_CLIENT_ID=seu_client_id_producao
+CONTA_AZUL_CLIENT_SECRET=seu_client_secret_producao
+CONTA_AZUL_REDIRECT_URI=https://payflow.seu-dominio.com/oauth/callback
 
-# Segurança
-MASTER_KEY=base64_encoded_32_bytes
-JWT_SECRET=seu_jwt_secret
+# === Segurança ===
+# Gerar com: python -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+MASTER_KEY=gerar_chave_de_32_bytes_base64_encoded
+JWT_SECRET=gerar_secret_aleatorio_seguro
 
-# SMTP
-SMTP_HOST=smtp.seuhost.com
+# === SMTP (Produção) ===
+SMTP_HOST=smtp.sendgrid.net
 SMTP_PORT=587
-SMTP_USER=seu_email@dominio.com
-SMTP_PASSWORD=sua_senha_smtp
-SMTP_FROM=seu_email@dominio.com
-SMTP_REPLY_TO=seu_email@dominio.com
+SMTP_USER=apikey
+SMTP_PASSWORD=SG.sua_api_key_producao
+SMTP_FROM=noreply@seu-dominio.com
+SMTP_REPLY_TO=suporte@seu-dominio.com
 SMTP_USE_TLS=true
 SMTP_TIMEOUT=10
 
-# Polling
+# === Database ===
+DATABASE_URL=sqlite:///./data/payflow.db
+
+# === Polling ===
 POLLING_INTERVAL_SECONDS=300
 POLLING_SAFETY_WINDOW_MINUTES=10
 
-# Database
-DATABASE_URL=sqlite:///./data/payflow.db
+# === Cloudflare Tunnel ===
+# Será preenchido no Passo 4
+CLOUDFLARE_TUNNEL_TOKEN=
 
-# Será configurado depois
-CLOUDFLARE_TUNNEL_TOKEN=<será gerado na Cloudflare>
+# === Fallback de Emails (Opcional) ===
+DOCTORS_FALLBACK_JSON={"Dr. João": "joao@clinica.com"}
+
+# === Ambiente ===
+ENVIRONMENT=production
+LOG_LEVEL=INFO
 ```
 
-## ☁️ Passo 3: Criar Tunnel na Cloudflare
+**Salvar**: `Ctrl+O`, `Enter`, `Ctrl+X`
 
-### 3.1 Acessar Cloudflare Dashboard
+---
 
-1. Acessar https://dash.cloudflare.com
+## ☁️ Passo 4: Configurar Cloudflare Tunnel
+
+### 4.1 Acessar Cloudflare Dashboard
+
+1. Ir para https://dash.cloudflare.com
 2. Selecionar seu domínio
-3. Clicar em **Zero Trust** no menu lateral esquerdo
-4. Clicar em **Tunnels** (ou **Tunnels & Connectors** → **Tunnels**)
+3. Menu lateral: **Zero Trust**
+4. **Networks → Tunnels**
 
-### 3.2 Criar Novo Tunnel
+### 4.2 Criar Tunnel
 
 ```
 Tunnels → Create a tunnel
-├─ Tunnel name: payflow (ou seu nome)
-├─ Connector: Docker (você vai usar Docker)
+├─ Tunnel name: payflow-api
+├─ Connector: Docker
 └─ Next
 ```
 
-### 3.3 Copiar Token
+### 4.3 Copiar Token
 
-Na próxima tela, você verá um comando como:
-
-```bash
-cloudflared tunnel run --token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-**Copie apenas a parte do token** (string longa após `--token`):
-
-```
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-### 3.4 Salvar Token no .env
+Você verá um comando como:
 
 ```bash
-# No seu servidor, editar .env
+docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Copiar apenas o token** (parte após `--token`):
+
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhIjoiMTIzNDU2Nzg5MCIsInQiOiJhYmNkZWZnaCIsInMiOiJodHRwczovL...
+```
+
+### 4.4 Salvar Token no .env
+
+```bash
 nano .env
 ```
 
-Colar:
+Adicionar linha:
 ```env
 CLOUDFLARE_TUNNEL_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-Salvar e fechar.
+### 4.5 Configurar Public Hostname
 
-### 3.5 Configurar Public Hostnames
-
-Voltar ao Cloudflare, na aba **Public Hostnames**:
+Voltar ao Cloudflare Dashboard, aba **Public Hostnames**:
 
 ```
-Public Hostnames → Create hostname
-├─ Subdomain: payflow (ou api)
+Public Hostnames → Add a public hostname
+├─ Subdomain: payflow
 ├─ Domain: seu-dominio.com
-├─ Type: HTTPS
-├─ URL: http://api:8000  (nome do container Docker + porta interna)
-└─ Save
+├─ Type: HTTP
+├─ URL: api:8000  ← IMPORTANTE: nome do container Docker
+└─ Save hostname
 ```
 
-**Importante**: URL é `http://api:8000` (não localhost), porque dentro do Docker o serviço se chama "api".
+**Resultado**: `https://payflow.seu-dominio.com` → `http://api:8000` (interno)
 
-Agora seu app estará disponível em: `https://payflow.seu-dominio.com`
+---
 
-## 🔐 Passo 4: Proteger com Cloudflare Access (Google SSO)
+## 🔐 Passo 5: Proteger com Cloudflare Access (Google SSO)
 
-### 4.1 Acessar Cloudflare Access
+### 5.1 Criar Aplicação
 
 ```
 Zero Trust → Access → Applications
-├─ Create Application
-└─ Self-hosted
+├─ Add an application
+├─ Self-hosted
 ```
 
-### 4.2 Configurar Aplicação
+### 5.2 Configurar
 
 ```
-Application name: PayFlow API
-Subdomain: payflow
-Domain: seu-dominio.com
-Application type: Self-hosted
+Application Configuration:
+├─ Application name: PayFlow API
+├─ Session Duration: 24 hours
+├─ Application domain: payflow.seu-dominio.com
+└─ Next
 ```
 
-### 4.3 Configurar Autenticação (Google SSO)
-
-Nas páginas seguintes:
+### 5.3 Adicionar Login Provider
 
 ```
-Policies → Add a policy
-├─ Policy name: "Require Google Account"
+Identity providers:
+├─ Add a login method
+├─ Select: Google
+├─ Seguir instruções para obter Client ID/Secret do Google
+└─ Save
+```
+
+### 5.4 Criar Policy
+
+```
+Add a policy:
+├─ Policy name: Require Google Account
 ├─ Action: Allow
-├─ Rule:
+├─ Configure rules:
 │  ├─ Include:
 │  │  └─ Selector: Emails
-│  │     Valor: seu_email@gmail.com  (suas contas autorizadas)
-│  └─ Exclude: (deixar vazio)
-└─ Save
+│  │     Value: seu_email@gmail.com, admin@seu-dominio.com
+│  └─ Exclude: (vazio)
+└─ Next → Add application
 ```
 
-### 4.4 Adicionar Mais Usuários (Opcional)
+**Resultado**: Apenas emails autorizados podem acessar `https://payflow.seu-dominio.com`
 
-```
-Policies → Edit policy
-├─ Include:
-│  └─ Selector: Emails
-│     Valor: email1@gmail.com, email2@gmail.com, ...
-└─ Save
-```
+---
 
-## 🐳 Passo 5: Rodar Docker Compose
+## 🐳 Passo 6: Build e Deploy Docker
 
 ```bash
-# No diretório da API
-cd ~/payflow/api
+# Verificar que .env está completo
+cat .env | grep -E "MASTER_KEY|CLOUDFLARE_TUNNEL_TOKEN|SMTP"
 
-# Verificar que .env está pronto
-cat .env  # confirmar que CLOUDFLARE_TUNNEL_TOKEN está preenchido
+# Build das imagens
+docker-compose build --no-cache
 
-# Build da imagem (primeira vez)
-docker-compose build
-
-# Rodar os serviços
+# Iniciar serviços
 docker-compose up -d
 
 # Verificar status
 docker-compose ps
 ```
 
-Esperado:
+**Output esperado**:
 ```
-NAME                    STATUS
-payflow-api             Up (healthy)
-payflow-worker          Up
-payflow-cloudflared     Up
+NAME                STATUS              PORTS
+payflow-api         Up (healthy)        
+payflow-worker      Up                  
+payflow-cloudflared Up                  
 ```
 
-## ✅ Passo 6: Verificar Deployments
+---
 
-### 6.1 Verificar Logs
+## ✅ Passo 7: Validar Deploy
+
+### 7.1 Verificar Logs
 
 ```bash
-# Logs da API
+# API
 docker-compose logs -f api
 
-# Logs do Worker
+# Esperado:
+# INFO: Uvicorn running on http://0.0.0.0:8000
+# INFO: PayFlow API iniciada - 1.0.0
+
+# Worker
 docker-compose logs -f worker
 
-# Logs do Cloudflared
+# Esperado:
+# Worker iniciado
+# Intervalo de polling: 300s
+
+# Cloudflared
 docker-compose logs -f cloudflared
+
+# Esperado:
+# Registered tunnel connection
 ```
 
-Esperado na API:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000
-INFO:     PayFlow API iniciada - 1.0.0
-```
-
-Esperado no Worker:
-```
-Worker iniciado
-Intervalo de polling: 300s
-```
-
-### 6.2 Testar Endpoint
+### 7.2 Testar Localmente
 
 ```bash
-# Localmente no servidor
+# Dentro do servidor
 curl http://localhost:8000/healthz
 
-# Esperado
+# Esperado:
 {"status":"ok"}
 ```
 
-### 6.3 Testar via Cloudflare Tunnel
+### 7.3 Testar via Cloudflare Tunnel
 
 ```bash
-# Acessar no browser
+# De qualquer lugar (browser ou curl)
+curl https://payflow.seu-dominio.com/healthz
+
+# Se Cloudflare Access estiver ativo, você será redirecionado para login Google
+# Após autenticar: {"status":"ok"}
+```
+
+### 7.4 Testar Swagger UI
+
+Abrir browser:
+```
 https://payflow.seu-dominio.com/docs
-
-# Você será redirecionado para Google login
-# Após autenticar, verá Swagger UI
 ```
 
-## 🔄 Passo 7: Acessar Aplicação
+1. Será redirecionado para Google login
+2. Autenticar com conta autorizada
+3. Verá Swagger UI
 
-### Login via Google SSO
+---
 
-1. Abrir `https://payflow.seu-dominio.com`
-2. Será redirecionado para login do Google
-3. Autenticar com conta configurada no Cloudflare Access
-4. Será redirecionado para Dashboard do PayFlow
+## 🔄 Passo 8: Iniciar OAuth com Conta Azul
 
-### Endpoints Disponíveis
+### ⚠️ Importante: OAuth com Cloudflare Tunnel
+
+**O OAuth NÃO funciona com localhost!** É necessário usar domínio externo via Cloudflare Tunnel.
+
+**URLs corretas (validadas):**
+```
+Authorize: https://auth.contaazul.com/login
+Token: https://auth.contaazul.com/oauth2/token
+Redirect URI: https://payflow.seu-dominio.com/oauth/callback
+Scope: openid profile aws.cognito.signin.user.admin
+```
+
+### 8.1 Acessar Endpoint /connect
 
 ```
-GET  /healthz               Health check
-GET  /ready                 Readiness check
-GET  /docs                  Swagger UI
-GET  /connect               Iniciar OAuth Conta Azul
-GET  /oauth/callback        Callback OAuth
+Browser: https://payflow.seu-dominio.com/connect
 ```
+
+Será redirecionado para:
+1. **Cloudflare Access** → Login Google (se configurado)
+2. **Conta Azul** → Login + Autorizar
+
+### 8.2 Autorizar Aplicação
+
+Na tela do Conta Azul:
+- Fazer login com credenciais da empresa
+- Clicar em **Autorizar**
+- Será redirecionado de volta para `/oauth/callback`
+
+### 8.3 Verificar Tokens Salvos
+
+```bash
+# No servidor
+docker-compose exec api bash
+
+# Dentro do container
+sqlite3 data/payflow.db
+sqlite> SELECT account_id, created_at FROM oauth_tokens;
+# Deve listar seu account_id
+
+sqlite> .quit
+exit
+```
+
+---
 
 ## 🛠️ Manutenção
 
-### Ver Status
+### Ver Logs em Tempo Real
 
 ```bash
-docker-compose ps
-docker-compose logs -f api
+docker-compose logs -f api worker
 ```
 
 ### Reiniciar Serviços
@@ -291,202 +374,292 @@ docker-compose restart worker
 docker-compose down
 ```
 
-### Atualizar Aplicação
+### Atualizar Código
 
 ```bash
 # Parar
 docker-compose down
 
-# Puxar novo código
-git pull
+# Puxar atualizações
+git pull origin main
 
-# Rebuild e rodar
-docker-compose up -d --build
+# Rebuild e reiniciar
+docker-compose build --no-cache
+docker-compose up -d
+
+# Verificar
+docker-compose logs -f api
 ```
 
-### Verificar Banco de Dados
-
-```bash
-# Entrar no container da API
-docker-compose exec api bash
-
-# Dentro do container
-sqlite3 data/payflow.db
-sqlite> SELECT COUNT(*) FROM azul_accounts;
-sqlite> .exit
-```
-
-## 📊 Monitoramento
-
-### Ver Uso de Recursos
-
-```bash
-docker stats payflow-api payflow-worker payflow-cloudflared
-```
-
-### Ver Tamanho do Banco
-
-```bash
-du -h ./data/payflow.db
-```
-
-### Backup do Banco
+### Backup do Banco de Dados
 
 ```bash
 # Criar backup
-cp ./data/payflow.db ./data/payflow.db.backup.$(date +%Y%m%d_%H%M%S)
+cp data/payflow.db data/payflow.db.backup.$(date +%Y%m%d_%H%M%S)
 
 # Listar backups
-ls -lh ./data/payflow.db*
+ls -lh data/*.backup.*
 ```
 
-## 🐛 Troubleshooting
-
-### API não inicia
+### Restaurar Backup
 
 ```bash
-# Ver logs
-docker-compose logs api
+# Parar serviços
+docker-compose down
 
-# Verificar .env
-cat .env | grep -v PASSWORD
+# Restaurar
+cp data/payflow.db.backup.20260210_143000 data/payflow.db
 
-# Verificar permissões
-ls -la ./data/
+# Reiniciar
+docker-compose up -d
 ```
-
-### Worker não conecta
-
-```bash
-# Ver logs
-docker-compose logs worker
-
-# Verificar token OAuth
-cat .env | grep CONTA_AZUL
-
-# Verificar checkpoint
-docker-compose exec api sqlite3 data/payflow.db \
-  "SELECT * FROM financial_checkpoints;"
-```
-
-### Cloudflare não funciona
-
-```bash
-# Ver logs
-docker-compose logs cloudflared
-
-# Verificar token
-cat .env | grep CLOUDFLARE_TUNNEL_TOKEN
-
-# Testar localmente
-curl http://localhost:8000/healthz
-```
-
-### Banco de dados corrompido
-
-```bash
-# Backup
-cp ./data/payflow.db ./data/payflow.db.broken
-
-# Recrear banco (vai perder dados)
-rm ./data/payflow.db
-
-# Reiniciar (criará novo banco)
-docker-compose restart api
-```
-
-## 🔐 Segurança
-
-### Proteger Secretos
-
-```bash
-# Nunca fazer commit de .env
-echo ".env" >> .gitignore
-
-# Permissões
-chmod 600 .env
-
-# Verificar que não há secrets no código
-grep -r "MASTER_KEY\|JWT_SECRET" app/
-# Não deve retornar nada (exceto variáveis de config)
-```
-
-### HTTPS Obrigatório
-
-- Cloudflare Tunnel força HTTPS automaticamente
-- Certificado é gerenciado pela Cloudflare
-- Renovação automática
-
-### Backup de Banco
-
-```bash
-# Cron job para backup diário (no servidor)
-0 2 * * * cd ~/payflow/api && cp data/payflow.db data/backups/payflow.db.$(date +\%Y\%m\%d)
-```
-
-## 📞 Suporte
-
-### Logs Importantes
-
-```bash
-# Exportar todos os logs
-docker-compose logs > logs.txt
-
-# Ver apenas erros
-docker-compose logs | grep -i error
-```
-
-### Dados Úteis para Suporte
-
-```bash
-# Versões
-docker --version
-docker-compose --version
-
-# Configuração (sem secrets)
-cat .env | grep -v PASSWORD | grep -v SECRET | grep -v KEY | grep -v TOKEN
-
-# Status dos containers
-docker-compose ps
-
-# Uso de recursos
-docker stats
-
-# Espaço em disco
-df -h
-```
-
-## 📝 Checklist de Deploy
-
-- [ ] Git repository clonado
-- [ ] .env configurado com todas as variáveis
-- [ ] Tunnel criado na Cloudflare
-- [ ] CLOUDFLARE_TUNNEL_TOKEN adicionado ao .env
-- [ ] Public Hostname configurado (payflow.seu-dominio.com → http://api:8000)
-- [ ] Cloudflare Access configurado com Google SSO
-- [ ] docker-compose build executado
-- [ ] docker-compose up -d funcionando
-- [ ] docker-compose ps mostra 3 containers healthy
-- [ ] curl localhost:8000/healthz retorna {"status":"ok"}
-- [ ] https://payflow.seu-dominio.com funciona
-- [ ] Google login funciona
-- [ ] Swagger UI acessível (/docs)
-- [ ] Worker está processando (verificar logs)
-- [ ] Banco de dados existe (data/payflow.db)
-
-## 🎉 Deploy Concluído!
-
-Seu PayFlow está rodando:
-- ✅ API em `https://payflow.seu-dominio.com`
-- ✅ Protegido com Google SSO via Cloudflare Access
-- ✅ Worker processando contas a receber
-- ✅ HTTPS obrigatório e certificado auto-renovado
-- ✅ Banco SQLite persistente em ./data
-- ✅ Usuário não-root no Docker
 
 ---
 
-**Versão**: 1.0.0  
-**Data**: 2026-02-10  
+## 🔐 Atualizar MASTER_KEY (Rotação de Chave)
+
+### Quando fazer
+- Anualmente (best practice)
+- Após suspeita de comprometimento
+- Como parte de auditoria de segurança
+
+### Procedimento
+
+```bash
+# 1. Gerar nova chave
+python -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+# Salvar output como: NEW_MASTER_KEY
+
+# 2. Backup do banco
+cp data/payflow.db data/payflow.db.backup.$(date +%Y%m%d_%H%M%S)
+
+# 3. Editar .env
+nano .env
+
+# Adicionar linha:
+# OLD_MASTER_KEYS=<chave_antiga>
+# Atualizar:
+# MASTER_KEY=<NEW_MASTER_KEY>
+
+# 4. Rebuild e reiniciar
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+
+# 5. Verificar logs
+docker-compose logs api | grep -i "crypto\|error"
+
+# 6. Após 24h, remover OLD_MASTER_KEYS do .env
+```
+
+**Veja**: [SECURITY.md](SECURITY.md) para detalhes sobre rotação de chaves.
+
+---
+
+## 📊 Monitoramento
+
+### Health Checks
+
+```bash
+# Localmente
+curl http://localhost:8000/healthz
+curl http://localhost:8000/ready
+
+# Via Cloudflare
+curl https://payflow.seu-dominio.com/healthz
+```
+
+### Logs Estruturados
+
+```bash
+# Ver logs com filtro
+docker-compose logs api | grep ERROR
+docker-compose logs worker | grep "processados\|erros"
+
+# Ver apenas últimas 100 linhas
+docker-compose logs --tail=100 api
+```
+
+### Métricas (Sugestão)
+
+Para produção, considere adicionar:
+
+**Prometheus + Grafana**:
+```yaml
+# Adicionar ao docker-compose.yml
+prometheus:
+  image: prom/prometheus
+  ports:
+    - "9090:9090"
+  volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+grafana:
+  image: grafana/grafana
+  ports:
+    - "3000:3000"
+```
+
+**Sentry (Error Tracking)**:
+```env
+# .env
+SENTRY_DSN=https://...@sentry.io/...
+```
+
+```python
+# app/main.py
+import sentry_sdk
+sentry_sdk.init(dsn=settings.SENTRY_DSN)
+```
+
+---
+
+## 🚨 Troubleshooting
+
+### Container não inicia
+
+```bash
+# Ver logs de erro
+docker-compose logs api
+
+# Verificar .env
+cat .env | grep -E "MASTER_KEY|DATABASE_URL"
+
+# Rebuild forçado
+docker-compose down
+docker-compose build --no-cache --pull
+docker-compose up -d
+```
+
+### Cloudflare Tunnel não conecta
+
+```bash
+# Verificar logs do cloudflared
+docker-compose logs cloudflared
+
+# Erros comuns:
+# - Token inválido → regenerar na Cloudflare
+# - Firewall bloqueando → liberar portas 80, 443, 7844
+# - DNS não propagado → aguardar alguns minutos
+```
+
+### OAuth falha (401 Unauthorized)
+
+```bash
+# Verificar credenciais no .env
+cat .env | grep CONTA_AZUL
+
+# Verificar que REDIRECT_URI no .env == Redirect URI no Portal Conta Azul
+# Exemplo: https://payflow.seu-dominio.com/oauth/callback
+```
+
+### SMTP falha (535 Authentication Error)
+
+```bash
+# Gmail: verificar que App Password está correto
+# SendGrid: verificar API key
+# Testar SMTP:
+docker-compose exec api python3 -c "
+from app.services.mailer import MailerService
+mailer = MailerService()
+result = mailer.send_test_email('seu_email@gmail.com')
+print(f'Resultado: {result}')
+"
+```
+
+### Worker não processa contas
+
+```bash
+# Ver logs
+docker-compose logs worker | grep -i "conta\|erro"
+
+# Verificar se há contas ativas
+docker-compose exec api bash
+sqlite3 data/payflow.db
+sqlite> SELECT account_id, is_active FROM azul_accounts;
+
+# Se nenhuma conta: fazer OAuth primeiro
+# Browser: https://payflow.seu-dominio.com/connect
+```
+
+**Mais soluções**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+---
+
+## 🔧 Configurações Avançadas
+
+### Customizar Intervalo de Polling
+
+```env
+# .env
+POLLING_INTERVAL_SECONDS=600  # 10 minutos
+POLLING_SAFETY_WINDOW_MINUTES=15
+```
+
+```bash
+docker-compose restart worker
+```
+
+### Habilitar Debug Logs
+
+```env
+# .env
+LOG_LEVEL=DEBUG
+```
+
+```bash
+docker-compose restart
+```
+
+### Limitar Recursos Docker
+
+```yaml
+# docker-compose.yml
+services:
+  api:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+```
+
+### Auto-restart em Falha
+
+```yaml
+# docker-compose.yml (já configurado)
+services:
+  api:
+    restart: unless-stopped
+  worker:
+    restart: unless-stopped
+```
+
+---
+
+## 📝 Checklist Pós-Deploy
+
+- [ ] Cloudflare Tunnel conectado e ativo
+- [ ] Cloudflare Access protegendo aplicação
+- [ ] Health checks respondendo (200 OK)
+- [ ] OAuth com Conta Azul funcionando
+- [ ] Worker processando contas (ver logs)
+- [ ] SMTP enviando emails (testar com send_test_email)
+- [ ] Logs não mostram senhas/tokens em plaintext
+- [ ] Backup do banco configurado
+- [ ] Monitoramento ativo (opcional)
+
+---
+
+## 🆘 Suporte
+
+Problemas ou dúvidas:
+1. Consultar [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+2. Ver logs: `docker-compose logs -f`
+3. Abrir issue no GitHub
+4. Contatar equipe de desenvolvimento
+
+---
+
 **Última atualização**: 2026-02-10
 

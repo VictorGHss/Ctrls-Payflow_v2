@@ -4,9 +4,6 @@ Worker de polling para processar recibos periodicamente.
 
 import asyncio
 import sys
-import time
-from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -30,9 +27,17 @@ async def worker_loop():
     logger.info(f"Intervalo de polling: {settings.POLLING_INTERVAL_SECONDS}s")
 
     while True:
+        db: Session | None = None
         try:
-            db: Session = SessionLocal()
-            processor = PaymentProcessor(db, settings.DOCTORS_FALLBACK_JSON)
+            db = SessionLocal()
+            if db is None:
+                logger.error("Falha ao criar sessão do banco")
+                await asyncio.sleep(settings.POLLING_INTERVAL_SECONDS)
+                continue
+            processor = PaymentProcessor(
+                db,
+                settings.DOCTORS_FALLBACK_JSON,
+            )
 
             # Buscar e processar contas ativas
             accounts = processor.get_active_accounts()
@@ -60,10 +65,11 @@ async def worker_loop():
             logger.error(f"Erro no loop de polling: {e}")
 
         finally:
-            try:
-                db.close()
-            except:
-                pass
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
             # Aguardar próximo ciclo
             logger.info(
@@ -86,4 +92,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

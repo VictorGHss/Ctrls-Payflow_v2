@@ -2,15 +2,19 @@
 Rotas OAuth2 Authorization Code para Conta Azul.
 """
 
+import secrets
+from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, RedirectResponse
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_db_session, init_db
+from app.crypto import get_crypto_manager
+from app.database import AzulAccount, OAuthToken, init_db
 from app.logging import setup_logging
-from app.services_auth import ContaAzulAuthService
 
 logger = setup_logging(__name__)
 
@@ -19,7 +23,7 @@ settings = get_settings()
 engine, SessionLocal = init_db(settings.DATABASE_URL)
 
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     """Dependency para obter sessão do banco."""
     db = SessionLocal()
     try:
@@ -32,7 +36,7 @@ router = APIRouter(tags=["oauth"])
 
 
 @router.get("/authorize")
-def authorize_request(db: Session):
+def authorize_request(db: Session = Depends(get_db)):
     """
     Inicia fluxo OAuth.
     Redireciona para página de login da Conta Azul.
@@ -61,7 +65,7 @@ def authorize_request(db: Session):
 def oauth_callback(
     code: str = Query(...),
     state: str = Query(...),
-    db: Session = None,
+    db: Session = Depends(get_db),
 ):
     """
     Callback da Conta Azul após usuário autorizar.
@@ -96,7 +100,7 @@ def oauth_callback(
 
     except httpx.HTTPError as e:
         logger.error(f"Erro ao trocar código por token: {e}")
-        raise HTTPException(status_code=500, detail="Erro na autenticação")
+        raise HTTPException(status_code=500, detail="Erro na autenticação") from e
 
     token_data = token_response.json()
     access_token = token_data.get("access_token")
@@ -120,7 +124,7 @@ def oauth_callback(
         raise HTTPException(
             status_code=500,
             detail="Erro ao buscar dados da conta",
-        )
+        ) from e
 
     # Salvar tokens criptografados
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
@@ -131,9 +135,7 @@ def oauth_callback(
 
         # Verificar se já existe token para esta conta
         existing = (
-            db.query(OAuthToken)
-            .filter(OAuthToken.account_id == account_id)
-            .first()
+            db.query(OAuthToken).filter(OAuthToken.account_id == account_id).first()
         )
 
         if existing:
@@ -151,9 +153,7 @@ def oauth_callback(
 
         # Registrar/atualizar dados da conta
         account_record = (
-            db.query(AzulAccount)
-            .filter(AzulAccount.account_id == account_id)
-            .first()
+            db.query(AzulAccount).filter(AzulAccount.account_id == account_id).first()
         )
 
         if account_record:
@@ -183,7 +183,9 @@ def oauth_callback(
     except Exception as e:
         db.rollback()
         logger.error(f"Erro ao salvar tokens: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao salvar autenticação")
+        raise HTTPException(
+            status_code=500, detail="Erro ao salvar autenticação"
+        ) from e
 
 
 def _get_account_info(access_token: str, settings) -> dict:
@@ -222,9 +224,7 @@ def refresh_access_token(db: Session, account_id: str) -> Optional[str]:
     crypto = get_crypto_manager()
 
     token_record = (
-        db.query(OAuthToken)
-        .filter(OAuthToken.account_id == account_id)
-        .first()
+        db.query(OAuthToken).filter(OAuthToken.account_id == account_id).first()
     )
 
     if not token_record:
@@ -283,4 +283,3 @@ def refresh_access_token(db: Session, account_id: str) -> Optional[str]:
         db.rollback()
         logger.error(f"Erro ao salvar novo token: {e}")
         return None
-

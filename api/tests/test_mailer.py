@@ -2,20 +2,22 @@
 Testes para MailerService - Envio de email via SMTP
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, call
 import smtplib
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.services.mailer import (
+    EmailValidationError,
     MailerService,
     SMTPConfigError,
-    EmailValidationError,
 )
 
 
 @pytest.fixture
 def mock_settings():
     """Mock de settings para testes."""
+
     class MockSettings:
         SMTP_HOST = "smtp.example.com"
         SMTP_PORT = 587
@@ -67,6 +69,7 @@ def test_mailer_valid_config(mock_settings):
 
 def test_mailer_missing_smtp_host():
     """Testa erro quando SMTP_HOST está vazio."""
+
     class BadSettings:
         SMTP_HOST = ""
         SMTP_PORT = 587
@@ -84,6 +87,7 @@ def test_mailer_missing_smtp_host():
 
 def test_mailer_invalid_from_email():
     """Testa erro quando SMTP_FROM é inválido."""
+
     class BadSettings:
         SMTP_HOST = "smtp.example.com"
         SMTP_PORT = 587
@@ -311,7 +315,7 @@ def test_send_via_smtp_auth_error(mailer, valid_pdf):
 
         # Simular erro de autenticação
         mock_server.login.side_effect = smtplib.SMTPAuthenticationError(
-            "Invalid credentials"
+            535, "Invalid credentials"
         )
 
         msg = mailer._build_message(
@@ -344,7 +348,7 @@ def test_send_via_smtp_timeout(mailer, valid_pdf):
             reply_to=None,
         )
 
-        with pytest.raises(Exception):
+        with pytest.raises(smtplib.SMTPException):
             mailer._send_via_smtp(msg, "doctor@example.com")
 
 
@@ -434,4 +438,3 @@ def test_send_test_email_invalid_address(mailer):
     result = mailer.send_test_email("invalid")
 
     assert result is False
-

@@ -3,13 +3,14 @@ Testes para OAuth2 - Criptografia e Persistência de Tokens
 """
 
 import base64
-import pytest
 from datetime import datetime, timedelta, timezone
+
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.crypto import get_crypto_manager
-from app.database import Base, OAuthToken, AzulAccount
+from app.database import AzulAccount, Base, OAuthToken
 from app.services_auth import ContaAzulAuthService
 
 
@@ -338,4 +339,3 @@ def test_tokens_are_encrypted_at_rest(test_db, auth_service, crypto_manager):
 
     assert decrypted_access == access_token_plaintext
     assert decrypted_refresh == refresh_token_plaintext
-

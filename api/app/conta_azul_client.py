@@ -84,7 +84,7 @@ class ContaAzulClient:
                 # 429 = Too Many Requests
                 if response.status_code == 429:
                     if attempt < max_retries - 1:
-                        wait_time = base_wait * (2 ** attempt)
+                        wait_time = base_wait * (2**attempt)
                         logger.warning(
                             f"Rate limit atingido. Aguardando {wait_time}s "
                             f"(tentativa {attempt + 1}/{max_retries})",
@@ -186,4 +186,3 @@ class ContaAzulClient:
             )
             response.raise_for_status()
             return response.content
-

@@ -6,7 +6,7 @@ import smtplib
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional, List
+from typing import Optional
 
 from app.config import get_settings
 from app.logging import setup_logging
@@ -16,11 +16,13 @@ logger = setup_logging(__name__)
 
 class SMTPConfigError(Exception):
     """Erro de configuração SMTP."""
+
     pass
 
 
 class EmailValidationError(Exception):
     """Erro de validação de email."""
+
     pass
 
 
@@ -105,7 +107,7 @@ class MailerService:
 
         # Limitar tamanho
         if len(sanitized) > max_length:
-            sanitized = sanitized[:max_length - 3] + "..."
+            sanitized = sanitized[: max_length - 3] + "..."
 
         return sanitized
 
@@ -251,9 +253,7 @@ class MailerService:
 
         # Anexar PDF
         attachment = MIMEApplication(pdf_content, name=pdf_filename)
-        attachment[
-            "Content-Disposition"
-        ] = f"attachment; filename={pdf_filename}"
+        attachment["Content-Disposition"] = f"attachment; filename={pdf_filename}"
         msg.attach(attachment)
 
         return msg
@@ -307,7 +307,7 @@ class MailerService:
         recipient_email: str,
     ) -> None:
         """
-        Envia via SMTP com TLS.
+        Envia via SMTP com TLS ou SSL.
 
         Args:
             msg: Mensagem MIME
@@ -322,30 +322,51 @@ class MailerService:
                 f"{self.settings.SMTP_PORT}"
             )
 
-            # Criar conexão SMTP
-            with smtplib.SMTP(
-                self.settings.SMTP_HOST,
-                self.settings.SMTP_PORT,
-                timeout=self.settings.SMTP_TIMEOUT,
-            ) as server:
+            # Escolher entre SSL (porta 465) ou TLS (porta 587)
+            if self.settings.SMTP_USE_SSL:
+                # SSL direto (porta 465)
+                logger.debug("Usando SMTP_SSL (porta 465)")
+                with smtplib.SMTP_SSL(
+                    self.settings.SMTP_HOST,
+                    self.settings.SMTP_PORT,
+                    timeout=self.settings.SMTP_TIMEOUT,
+                ) as server:
+                    # Login
+                    logger.debug(f"Autenticando como {self.settings.SMTP_USER}")
+                    server.login(
+                        self.settings.SMTP_USER,
+                        self.settings.SMTP_PASSWORD,
+                    )
 
-                # Usar STARTTLS se configurado
-                if self.settings.SMTP_USE_TLS:
-                    logger.debug("Iniciando TLS...")
-                    server.starttls(timeout=self.settings.SMTP_TIMEOUT)
+                    # Enviar
+                    logger.debug(f"Enviando para {recipient_email}...")
+                    server.send_message(msg)
+                    logger.debug("Email enviado com sucesso via SMTP_SSL")
+            else:
+                # STARTTLS (porta 587)
+                logger.debug("Usando SMTP com STARTTLS (porta 587)")
+                with smtplib.SMTP(
+                    self.settings.SMTP_HOST,
+                    self.settings.SMTP_PORT,
+                    timeout=self.settings.SMTP_TIMEOUT,
+                ) as server:
 
-                # Login
-                logger.debug(f"Autenticando como {self.settings.SMTP_USER}")
-                server.login(
-                    self.settings.SMTP_USER,
-                    self.settings.SMTP_PASSWORD,
-                )
+                    # Usar STARTTLS se configurado
+                    if self.settings.SMTP_USE_TLS:
+                        logger.debug("Iniciando TLS...")
+                        server.starttls()
 
-                # Enviar
-                logger.debug(f"Enviando para {recipient_email}...")
-                server.send_message(msg)
+                    # Login
+                    logger.debug(f"Autenticando como {self.settings.SMTP_USER}")
+                    server.login(
+                        self.settings.SMTP_USER,
+                        self.settings.SMTP_PASSWORD,
+                    )
 
-                logger.debug("Email enviado com sucesso via SMTP")
+                    # Enviar
+                    logger.debug(f"Enviando para {recipient_email}...")
+                    server.send_message(msg)
+                    logger.debug("Email enviado com sucesso via SMTP")
 
         except smtplib.SMTPAuthenticationError as e:
             logger.error("Erro de autenticação SMTP (user/password inválido)")
@@ -385,4 +406,3 @@ class MailerService:
             pdf_content=b"%PDF-1.4\n%%EOF",  # PDF mínimo válido
             pdf_filename="teste.pdf",
         )
-

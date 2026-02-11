@@ -22,4 +22,3 @@ if __name__ == "__main__":
     print(f"\nMASTER_KEY={key}\n")
     print("Adicionar ao arquivo .env")
     print("=" * 60)
-

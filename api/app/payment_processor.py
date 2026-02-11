@@ -17,8 +17,8 @@ from app.database import (
     PollingCheckpoint,
     SentReceipt,
 )
-from app.email_service import EmailService
 from app.logging import setup_logging
+from app.services.mailer import MailerService
 
 logger = setup_logging(__name__)
 
@@ -81,7 +81,7 @@ class PaymentProcessor:
             fallback_json: JSON com fallback de emails
         """
         self.db = db
-        self.email_service = EmailService()
+        self.mailer = MailerService()
         self.crypto = get_crypto_manager()
         self.doctor_resolver = DoctorFallbackResolver(fallback_json)
 
@@ -133,7 +133,7 @@ class PaymentProcessor:
         self,
         account_id: str,
         installment_id: str,
-        receipt_id: str,
+        attachment_url: str,
     ) -> bool:
         """Verifica idempotência (recibo já enviado?)."""
         existing = (
@@ -141,7 +141,7 @@ class PaymentProcessor:
             .filter(
                 SentReceipt.account_id == account_id,
                 SentReceipt.installment_id == installment_id,
-                SentReceipt.receipt_id == receipt_id,
+                SentReceipt.attachment_url == attachment_url,
             )
             .first()
         )
@@ -150,7 +150,7 @@ class PaymentProcessor:
     def log_email_attempt(
         self,
         account_id: str,
-        receipt_id: str,
+        receipt_ref: str,
         doctor_email: str,
         status: str,
         error_msg: Optional[str] = None,
@@ -158,7 +158,7 @@ class PaymentProcessor:
         """Log de tentativa de envio."""
         log = EmailLog(
             account_id=account_id,
-            receipt_id=receipt_id,
+            receipt_id=receipt_ref,
             doctor_email=doctor_email,
             status=status,
             error_message=error_msg,
@@ -196,9 +196,7 @@ class PaymentProcessor:
             filter_date = checkpoint.last_processed_date.isoformat()
         else:
             # Fallback: últimos 30 dias
-            filter_date = (
-                datetime.now(timezone.utc) - timedelta(days=30)
-            ).isoformat()
+            filter_date = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
 
         logger.info(f"Filtrando parcelas a partir de: {filter_date}")
 
@@ -250,8 +248,7 @@ class PaymentProcessor:
             )
 
         logger.info(
-            f"Conta {account.account_id}: "
-            f"{processed} processados, {errors} erros",
+            f"Conta {account.account_id}: " f"{processed} processados, {errors} erros",
         )
         return processed, errors
 
@@ -275,6 +272,10 @@ class PaymentProcessor:
         installment_id = installment.get("id")
         status = installment.get("status")
 
+        if not installment_id:
+            logger.warning("Parcela sem ID; ignorando")
+            return False
+
         # Filtrar apenas parcelas recebidas/baixadas
         if status not in ["received", "settled", "paid"]:
             logger.debug(f"Ignorando parcela {installment_id} com status {status}")
@@ -282,19 +283,19 @@ class PaymentProcessor:
 
         # Buscar recibos/anexos
         try:
-            # Adaptar para API real
             receipt_url = installment.get("receiptUrl")
             if not receipt_url:
                 logger.warning(f"Parcela {installment_id} sem URL de recibo")
                 return False
 
+            attachment_url = receipt_url
             receipt_id = receipt_url.split("/")[-1]  # Extrair ID da URL
 
             # Verificar idempotência
             if self.is_receipt_already_sent(
                 account.account_id,
                 installment_id,
-                receipt_id,
+                attachment_url,
             ):
                 logger.info(f"Recibo {receipt_id} já enviado, ignorando")
                 return False
@@ -306,7 +307,7 @@ class PaymentProcessor:
                 logger.error(f"Erro ao baixar PDF: {e}")
                 self.log_email_attempt(
                     account.account_id,
-                    receipt_id,
+                    attachment_url,
                     "unknown",
                     "failed",
                     str(e),
@@ -327,12 +328,13 @@ class PaymentProcessor:
                 return False
 
             # Enviar email
-            success = self.email_service.send_receipt_email(
+            success = self.mailer.send_receipt_email(
                 doctor_email=doctor_email,
                 customer_name=customer_name or "Cliente",
                 amount=float(installment.get("amount", 0)),
                 receipt_date=installment.get("receivedDate", ""),
                 pdf_content=pdf_content,
+                pdf_filename="recibo.pdf",
             )
 
             if success:
@@ -340,20 +342,21 @@ class PaymentProcessor:
                 sent = SentReceipt(
                     account_id=account.account_id,
                     installment_id=installment_id,
-                    receipt_id=receipt_id,
-                    receipt_url=receipt_url,
+                    attachment_url=attachment_url,
                     doctor_email=doctor_email,
                     sent_at=datetime.now(timezone.utc),
-                    metadata={
+                    receipt_hash=None,
+                    receipt_metadata={
                         "customer_name": customer_name,
                         "amount": installment.get("amount"),
+                        "receipt_id": receipt_id,
                     },
                 )
                 self.db.add(sent)
                 self.db.commit()
                 self.log_email_attempt(
                     account.account_id,
-                    receipt_id,
+                    attachment_url,
                     doctor_email,
                     "sent",
                 )
@@ -361,7 +364,7 @@ class PaymentProcessor:
             else:
                 self.log_email_attempt(
                     account.account_id,
-                    receipt_id,
+                    attachment_url,
                     doctor_email,
                     "failed",
                     "Email service error",
@@ -371,4 +374,3 @@ class PaymentProcessor:
         except Exception as e:
             logger.error(f"Erro ao processar parcela {installment_id}: {e}")
             return False
-

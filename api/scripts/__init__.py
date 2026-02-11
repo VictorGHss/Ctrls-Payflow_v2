@@ -1,4 +1,3 @@
 """
 Package initialization para scripts.
 """
-

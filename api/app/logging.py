@@ -4,7 +4,7 @@ Logging com redação de informações sensíveis.
 
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Dict, Optional
 
 # Regex para redação de dados sensíveis
 SENSITIVE_PATTERNS: Dict[str, str] = {
@@ -50,7 +50,7 @@ class SensitiveDataFilter(logging.Filter):
         Returns:
             Texto com dados rediegidos
         """
-        for key, pattern in SENSITIVE_PATTERNS.items():
+        for _key, pattern in SENSITIVE_PATTERNS.items():
             text = re.sub(
                 pattern,
                 r"\1: ***REDACTED***",
@@ -63,7 +63,7 @@ class SensitiveDataFilter(logging.Filter):
 def setup_logging(
     name: str,
     level: str = "INFO",
-    log_file: str = None,
+    log_file: Optional[str] = None,
 ) -> logging.Logger:
     """
     Configura logging com redação de dados sensíveis.
@@ -103,4 +103,3 @@ def setup_logging(
         logger.addHandler(file_handler)
 
     return logger
-

@@ -3,7 +3,6 @@ Serviço para download, validação e armazenamento de recibos.
 """
 
 import hashlib
-from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.logging import setup_logging
@@ -114,4 +113,3 @@ class ReceiptDownloader:
             Hash SHA256 em hex
         """
         return hashlib.sha256(pdf_bytes).hexdigest()
-

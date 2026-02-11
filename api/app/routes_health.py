@@ -37,4 +37,3 @@ def root():
             "callback": "/oauth/callback",
         },
     }
-
