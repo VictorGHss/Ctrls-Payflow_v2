@@ -995,6 +995,50 @@ python scripts/debug_token_expires.py
 
 ---
 
+## 💰 Problemas com API Financeiro (Contas a Receber)
+
+### Erro 404: Endpoint /receivables não encontrado
+
+**Sintomas:**
+```
+HTTP 404 ao buscar contas a receber
+Endpoint: /receivables
+```
+
+**Causa:**
+- Endpoint `/receivables` não existe na API v2
+- Era endpoint da API legada v1
+
+**Solução (✅ Implementada):**
+
+Endpoint correto: `/v1/financeiro/eventos-financeiros/contas-a-receber/buscar`
+
+**Parâmetros aceitos:**
+- `dataAlteracaoInicio`: Data/hora ISO 8601 (ex: `2026-02-11T18:00:00+00:00`)
+- `situacao`: Status - valores: `RECEBIDO`, `PENDENTE`, `VENCIDO`, `CANCELADO`
+- `pagina`: Número da página (padrão: 1)
+- `tamanhoPagina`: Itens por página - valores: 10, 20, 50 (máx: 50)
+
+**Exemplo de request:**
+```
+GET https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/contas-a-receber/buscar?dataAlteracaoInicio=2026-01-12T18:00:00+00:00&situacao=RECEBIDO&pagina=1&tamanhoPagina=50
+Authorization: Bearer <access_token>
+```
+
+**Verificar logs:**
+```bash
+docker-compose logs worker | grep "Consultando contas a receber"
+```
+
+Deve mostrar:
+```
+📅 Consultando contas a receber desde: 2026-01-12T18:00:00+00:00
+🔍 Request: GET https://api-v2.contaazul.com/v1/financeiro/...
+✅ Encontradas X conta(s) a receber
+```
+
+---
+
 ## 🔐 Problemas com OAuth (Conta Azul)
 
 ### Erro 400: tamanho_pagina inválido

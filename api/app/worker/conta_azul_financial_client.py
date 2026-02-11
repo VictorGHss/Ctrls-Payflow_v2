@@ -108,7 +108,7 @@ class ContaAzulFinancialClient:
 
         Args:
             method: GET, POST, etc
-            endpoint: Caminho relativo (ex: /receivables)
+            endpoint: Caminho relativo (ex: /v1/financeiro/...)
             params: Query parameters
             json_data: JSON body
 
@@ -117,6 +117,7 @@ class ContaAzulFinancialClient:
 
         Raises:
             RateLimitError: 429
+            httpx.HTTPStatusError: Erros HTTP (4xx, 5xx)
             httpx.HTTPError: Outros erros
         """
         await self._apply_rate_limit()
@@ -124,30 +125,28 @@ class ContaAzulFinancialClient:
         url = f"{self.BASE_URL}{endpoint}"
         headers = self._get_auth_header()
 
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.request(
-                    method,
-                    url,
-                    params=params,
-                    json=json_data,
-                    headers=headers,
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.request(
+                method,
+                url,
+                params=params,
+                json=json_data,
+                headers=headers,
+            )
+
+            # Rate limit: retry com backoff exponencial
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After", "60")
+                logger.warning(
+                    f"⚠️  Rate limit 429. Retry-After: {retry_after}s. "
+                    f"Usando backoff exponencial..."
                 )
+                raise RateLimitError(f"Rate limit: {retry_after}s")
 
-                if response.status_code == 429:
-                    retry_after = response.headers.get("Retry-After", "60")
-                    logger.warning(
-                        f"Rate limit 429. Retry-After: {retry_after}s. "
-                        f"Usando backoff exponencial..."
-                    )
-                    raise RateLimitError(f"Rate limit: {retry_after}s")
+            # Outros erros HTTP: propagar para tratamento específico
+            response.raise_for_status()
 
-                response.raise_for_status()
-                return response.json()
-
-        except httpx.HTTPError as e:
-            logger.error(f"Erro HTTP em {method} {endpoint}: {e}")
-            raise
+            return response.json()
 
     async def get_receivables(
         self,
@@ -156,41 +155,132 @@ class ContaAzulFinancialClient:
         status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Busca contas a receber (receivables) alteradas.
+        Busca contas a receber usando API Financeiro v1.
+
+        Endpoint: GET /v1/financeiro/eventos-financeiros/contas-a-receber/buscar
 
         Args:
-            account_id: ID da conta
-            changed_since: ISO datetime (ex: 2026-02-10T15:30:00Z)
-            status: Filtro por status (ex: 'received', 'pending')
+            account_id: ID da conta (para logs)
+            changed_since: Data/hora desde quando buscar alterações
+            status: Filtro por status (ex: 'RECEBIDO', 'PENDENTE', 'VENCIDO')
 
         Returns:
             Lista de contas a receber
         """
         params = {}
 
+        # Converter changed_since para formato aceito pela API
         if changed_since:
             if isinstance(changed_since, datetime):
+                # API espera formato ISO 8601
                 changed_since_param = changed_since.isoformat()
             else:
                 changed_since_param = str(changed_since)
-            params["changedSince"] = changed_since_param
 
+            params["dataAlteracaoInicio"] = changed_since_param
+
+            logger.info(
+                f"📅 Consultando contas a receber desde: {changed_since_param} "
+                f"(conta: {account_id[:10]}...)"
+            )
+        else:
+            logger.info(f"📅 Consultando todas as contas a receber (conta: {account_id[:10]}...)")
+
+        # Mapear status para valores aceitos pela API
+        # Status possíveis: RECEBIDO, PENDENTE, VENCIDO, CANCELADO
         if status:
-            params["status"] = status
+            # Converter 'received' (inglês) para 'RECEBIDO' (português)
+            status_map = {
+                "received": "RECEBIDO",
+                "pending": "PENDENTE",
+                "overdue": "VENCIDO",
+                "cancelled": "CANCELADO",
+            }
+            api_status = status_map.get(status.lower(), status.upper())
+            params["situacao"] = api_status
+            logger.debug(f"   Filtro de status: {api_status}")
 
-        logger.debug(f"Consultando receivables para {account_id[:10]}...")
+        # Adicionar paginação (começar com página 1)
+        params.setdefault("pagina", 1)
+        params.setdefault("tamanhoPagina", 50)  # Máximo aceito
+
+        endpoint = "/v1/financeiro/eventos-financeiros/contas-a-receber/buscar"
+
+        logger.debug(f"🔍 Request: GET {self.BASE_URL}{endpoint}")
+        logger.debug(f"   Parâmetros: {params}")
 
         try:
-            data = await self._request("GET", "/receivables", params=params)
+            data = await self._request("GET", endpoint, params=params)
 
-            # A API retorna {data: [...], pagination: {...}}
-            items = data.get("data", [])
-            logger.debug(f"  Encontrados {len(items)} item(ns)")
+            # A API retorna diferentes estruturas, verificar ambas
+            items = data.get("contas", []) or data.get("data", []) or data.get("items", [])
+
+            total = data.get("total", len(items))
+
+            logger.info(f"✅ Encontradas {len(items)} conta(s) a receber (total: {total})")
+
+            if items:
+                logger.debug(f"   Primeira conta: ID={items[0].get('id', 'N/A')}")
 
             return items
 
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+
+            # Log detalhado de erros HTTP
+            if status_code == 400:
+                logger.error(
+                    f"❌ Erro 400 Bad Request ao buscar contas a receber\n"
+                    f"   Endpoint: {endpoint}\n"
+                    f"   Parâmetros: {params}\n"
+                    f"   Resposta: {e.response.text[:500]}\n"
+                    f"   Possível causa: Parâmetros inválidos ou formato incorreto"
+                )
+            elif status_code == 401:
+                logger.error(
+                    f"❌ Erro 401 Unauthorized ao buscar contas a receber\n"
+                    f"   Possível causa: Token expirado ou inválido\n"
+                    f"   Endpoint: {endpoint}"
+                )
+            elif status_code == 403:
+                logger.error(
+                    f"❌ Erro 403 Forbidden ao buscar contas a receber\n"
+                    f"   Possível causa: Sem permissão para acessar contas a receber\n"
+                    f"   Endpoint: {endpoint}"
+                )
+            elif status_code == 404:
+                logger.error(
+                    f"❌ Erro 404 Not Found ao buscar contas a receber\n"
+                    f"   Endpoint: {endpoint}\n"
+                    f"   URL completa: {self.BASE_URL}{endpoint}\n"
+                    f"   Possível causa: Endpoint incorreto ou API mudou"
+                )
+            elif status_code == 429:
+                logger.error(
+                    f"❌ Erro 429 Rate Limit ao buscar contas a receber\n"
+                    f"   Retry-After: {e.response.headers.get('Retry-After', 'N/A')}s"
+                )
+            elif status_code >= 500:
+                logger.error(
+                    f"❌ Erro {status_code} Server Error ao buscar contas a receber\n"
+                    f"   Endpoint: {endpoint}\n"
+                    f"   Possível causa: Instabilidade na API da Conta Azul"
+                )
+            else:
+                logger.error(
+                    f"❌ Erro HTTP {status_code} ao buscar contas a receber\n"
+                    f"   Endpoint: {endpoint}\n"
+                    f"   Resposta: {e.response.text[:500]}"
+                )
+
+            raise
+
         except Exception as e:
-            logger.error(f"Erro ao buscar receivables: {e}")
+            logger.error(
+                f"❌ Erro inesperado ao buscar contas a receber: {type(e).__name__}: {e}\n"
+                f"   Endpoint: {endpoint}\n"
+                f"   Conta: {account_id[:10]}..."
+            )
             raise
 
     async def get_receivable_details(
@@ -200,23 +290,47 @@ class ContaAzulFinancialClient:
         """
         Busca detalhes completos de uma conta a receber.
 
+        Endpoint: GET /v1/financeiro/eventos-financeiros/contas-a-receber/{id}
+
         Args:
             receivable_id: ID da conta a receber
 
         Returns:
             Detalhes incluindo parcelas (installments)
         """
-        logger.debug(f"Buscando detalhes de receivable {receivable_id[:10]}...")
+        endpoint = f"/v1/financeiro/eventos-financeiros/contas-a-receber/{receivable_id}"
+
+        logger.debug(f"🔍 Buscando detalhes de conta a receber {receivable_id[:10]}...")
+        logger.debug(f"   Endpoint: GET {self.BASE_URL}{endpoint}")
 
         try:
-            data = await self._request(
-                "GET",
-                f"/receivables/{receivable_id}",
-            )
+            data = await self._request("GET", endpoint)
+
+            logger.debug(f"✅ Detalhes obtidos para {receivable_id[:10]}...")
+
             return data
 
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+
+            if status_code == 404:
+                logger.error(
+                    f"❌ Erro 404: Conta a receber não encontrada\n"
+                    f"   ID: {receivable_id}\n"
+                    f"   Endpoint: {endpoint}"
+                )
+            elif status_code == 401:
+                logger.error(f"❌ Erro 401: Token expirado ou inválido")
+            else:
+                logger.error(
+                    f"❌ Erro HTTP {status_code} ao buscar detalhes\n"
+                    f"   ID: {receivable_id}\n"
+                    f"   Resposta: {e.response.text[:300]}"
+                )
+            raise
+
         except Exception as e:
-            logger.error(f"Erro ao buscar detalhes de receivable: {e}")
+            logger.error(f"❌ Erro ao buscar detalhes: {type(e).__name__}: {e}")
             raise
 
     async def get_installment_details(
@@ -253,6 +367,8 @@ class ContaAzulFinancialClient:
         """
         Busca URL de download do recibo/anexo.
 
+        Endpoint: GET /v1/financeiro/eventos-financeiros/contas-a-receber/{id}/anexos/{anexoId}
+
         Args:
             receivable_id: ID da conta a receber
             attachment_id: ID do anexo
@@ -260,30 +376,58 @@ class ContaAzulFinancialClient:
         Returns:
             URL de download ou None
         """
+        endpoint = f"/v1/financeiro/eventos-financeiros/contas-a-receber/{receivable_id}/anexos/{attachment_id}"
+
         logger.debug(
-            f"Buscando URL de recibo {attachment_id[:10]}... "
-            f"(receivable {receivable_id[:10]}...)"
+            f"📎 Buscando URL de anexo {attachment_id[:10]}... "
+            f"(conta: {receivable_id[:10]}...)"
         )
+        logger.debug(f"   Endpoint: GET {self.BASE_URL}{endpoint}")
 
         try:
-            data = await self._request(
-                "GET",
-                f"/receivables/{receivable_id}/attachments/{attachment_id}",
+            data = await self._request("GET", endpoint)
+
+            # API pode retornar url, downloadUrl, link, etc
+            url = (
+                data.get("url")
+                or data.get("downloadUrl")
+                or data.get("link")
+                or data.get("urlDownload")
             )
 
-            # Assumindo que a API retorna algo como:
-            # {url: "https://...", filename: "recibo.pdf", ...}
-            url = data.get("url") or data.get("downloadUrl")
-
             if url:
-                logger.debug(f"  URL obtida: {url[:50]}...")
+                logger.debug(f"✅ URL obtida: {url[:60]}...")
             else:
-                logger.warning("  Nenhuma URL de recibo encontrada")
+                logger.warning(
+                    f"⚠️  Nenhuma URL de anexo encontrada na resposta\n"
+                    f"   Campos disponíveis: {list(data.keys())}"
+                )
 
             return url
 
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+
+            if status_code == 404:
+                logger.error(
+                    f"❌ Erro 404: Anexo não encontrado\n"
+                    f"   Conta: {receivable_id}\n"
+                    f"   Anexo: {attachment_id}\n"
+                    f"   Endpoint: {endpoint}"
+                )
+            else:
+                logger.error(
+                    f"❌ Erro HTTP {status_code} ao buscar URL de anexo\n"
+                    f"   Resposta: {e.response.text[:300]}"
+                )
+            return None
+
         except Exception as e:
-            logger.error(f"Erro ao buscar URL de recibo: {e}")
+            logger.error(
+                f"❌ Erro ao buscar URL de anexo: {type(e).__name__}: {e}\n"
+                f"   Conta: {receivable_id}\n"
+                f"   Anexo: {attachment_id}"
+            )
             return None
 
     def _is_ip_address_safe(self, hostname: str) -> bool:
