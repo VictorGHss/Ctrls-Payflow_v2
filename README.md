@@ -265,6 +265,26 @@ pytest tests/test_crypto.py -v      # Criptografia
 pytest tests/test_mailer.py -v      # Email
 pytest tests/test_worker.py -v      # Worker
 pytest tests/test_security_ssrf.py -v  # SSRF
+pytest tests/test_datetime_fix.py -v    # Datetime timezone-aware
+```
+
+### 🕒 Debug de Tokens (Datetime)
+
+Para verificar se tokens têm timezone info correto:
+
+```bash
+python scripts/debug_token_expires.py
+```
+
+Mostra:
+- `expires_at` de cada token
+- `tzinfo` (deve ser UTC, não None)
+- Status (expirado/válido)
+- Formato (deve ser ISO 8601)
+
+Se encontrar tokens naive (tzinfo=None):
+```bash
+python scripts/migrate_datetime_to_iso8601.py
 ```
 
 ### 🔐 OAuth Smoke Test

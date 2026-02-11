@@ -949,10 +949,101 @@ CONTA_AZUL_REDIRECT_URI=https://abc-123.ngrok.io/oauth/callback
 
 ---
 
+## 🕒 Problemas com Datetime (Worker Crash)
+
+### TypeError: can't compare offset-naive and offset-aware datetimes
+
+**Sintomas:**
+```
+Worker crashando
+TypeError ao comparar datetimes
+Token não é renovado
+```
+
+**Causa:**
+- SQLite armazenava datetimes sem timezone (naive)
+- Código comparava naive com aware UTC
+
+**Solução (✅ Implementada):**
+
+Sistema agora usa `TZDateTime` que garante `expires_at` sempre timezone-aware (UTC).
+
+**Verificar se migração foi aplicada:**
+```bash
+cd api
+python scripts/debug_token_expires.py
+```
+
+**Output esperado:**
+```
+✅ tzinfo: UTC (em todos os tokens)
+✅ Naive datetimes: 0
+```
+
+**Se encontrar tokens naive:**
+```bash
+# Executar migração
+python scripts/migrate_datetime_to_iso8601.py
+
+# Verificar novamente
+python scripts/debug_token_expires.py
+```
+
+**Formato no banco:**
+- ✅ Correto: `"2026-02-11T18:00:00+00:00"` (ISO 8601 com timezone)
+- ❌ Antigo: `"2026-02-11 18:00:00"` (naive, ambíguo)
+
+---
+
+## 🔐 Problemas com OAuth (Conta Azul)
+
+### Erro 400: tamanho_pagina inválido
+
+**Sintomas:**
+```
+HTTP 400 no smoke test
+"O tamanho da página deve ser um dos seguintes valores: 10, 20, 50, 100..."
+```
+
+**Causa:**
+- API exige tamanho_pagina específico
+
+**Solução (✅ Implementada):**
+
+Endpoint correto: `/v1/pessoas?pagina=1&tamanho_pagina=10`
+
+**Valores permitidos:** 10, 20, 50, 100, 200, 500, 1000
+
+---
+
+### Erro 404: Endpoint não existe
+
+**Sintomas:**
+```
+HTTP 404 na etapa get_account_info
+"A URL informada não corresponde a um recurso da API"
+```
+
+**Causa:**
+- Endpoint `/company` ou `/v1/me` não existe na API v2
+
+**Solução (✅ Implementada):**
+
+Endpoint correto: `https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=10`
+
+**Verificar configuração:**
+```bash
+grep "API_URL" api/app/services_auth.py
+# Deve mostrar: api-v2.contaazul.com/v1/pessoas
+```
+
+---
+
 ### OAuth: URLs Corretas (Validadas com Painel Real)
 
 **URLs que funcionam:**
 ```
+API Base: https://api-v2.contaazul.com
 Authorize: https://auth.contaazul.com/login
 Token: https://auth.contaazul.com/oauth2/token
 Scope: openid profile aws.cognito.signin.user.admin
@@ -960,9 +1051,16 @@ Scope: openid profile aws.cognito.signin.user.admin
 
 **URLs antigas (NÃO usar):**
 ```
+❌ https://api.contaazul.com (API v1 legada)
 ❌ https://api.contaazul.com/auth/authorize
 ❌ https://accounts.contaazul.com/oauth/authorize
 ❌ Scope: sale (documentação antiga)
+```
+
+**Smoke test do token:**
+```bash
+python api/scripts/contaazul_smoke_test.py <access_token>
+# Deve retornar HTTP 200
 ```
 
 ---
