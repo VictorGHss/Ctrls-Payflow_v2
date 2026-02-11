@@ -206,7 +206,50 @@ cat app/services_auth.py | grep "SCOPES ="
 #    - Fazer novo fluxo: GET /connect
 ```
 
-##### 3. App em Sandbox mas usando API de Produção
+##### 3. Endpoint legado /v1/me não existe (API v2)
+```
+Error Type: invalid_token
+Description: The access token ... invalid or has expired
+Status: 401 (logo após token exchange bem-sucedido)
+```
+
+**Causa:**
+- Sistema usando endpoint legado `/v1/me` da API v1
+- API v2 atual não possui esse endpoint
+
+**Solução (✅ JÁ IMPLEMENTADA):**
+```bash
+# O sistema foi atualizado para usar API v2
+# Verificar se as configurações estão corretas:
+
+cat .env | grep CONTA_AZUL_API_BASE_URL
+# Deve ser: https://api-v2.contaazul.com
+
+# Verificar endpoints no código:
+grep -r "api-v2.contaazul.com" app/
+grep -r "/company" app/
+
+# Se ainda estiver usando URLs antigas, rebuild:
+docker-compose down
+docker-compose up -d --build
+
+# Validar correção:
+docker-compose logs api | grep "URL:"
+# Deve mostrar: https://api-v2.contaazul.com/company
+```
+
+**Verificação:**
+```bash
+# Testar se está usando API v2:
+python scripts/test_api_v2.py
+
+# Logs devem mostrar após OAuth:
+# ✅ URL: https://api-v2.contaazul.com/company
+# ✅ Status Code: 200
+# ✅ Informações da conta obtidas
+```
+
+##### 4. App em Sandbox mas usando API de Produção
 ```
 Error Type: invalid_token
 Message: Token not valid for production API
@@ -222,7 +265,7 @@ Message: Token not valid for production API
 # URLs de Produção (padrão):
 # CONTA_AZUL_AUTH_URL=https://auth.contaazul.com/login
 # CONTA_AZUL_TOKEN_URL=https://auth.contaazul.com/oauth2/token
-# CONTA_AZUL_API_BASE_URL=https://api.contaazul.com
+# CONTA_AZUL_API_BASE_URL=https://api-v2.contaazul.com
 ```
 
 ##### 4. Audience incorreta
@@ -235,15 +278,16 @@ Description: Token audience does not match
 ```bash
 # Verificar URL da API no .env
 cat .env | grep API_BASE_URL
-# Deve ser: https://api.contaazul.com (SEM hífen em "contaazul")
+# Deve ser: https://api-v2.contaazul.com
 
 # URLs CORRETAS:
-# CONTA_AZUL_API_BASE_URL=https://api.contaazul.com
+# CONTA_AZUL_API_BASE_URL=https://api-v2.contaazul.com
 
 # URLs INCORRETAS (não usar):
+# ❌ https://api.contaazul.com (API v1 legada)
 # ❌ https://api.conta-azul.com (com hífen)
-# ❌ http://api.contaazul.com (sem HTTPS)
-# ❌ https://api.contaazul.com.br (com .br)
+# ❌ http://api-v2.contaazul.com (sem HTTPS)
+# ❌ https://api-v2.contaazul.com.br (com .br)
 ```
 
 ##### 5. App sem permissões no Portal Conta Azul
@@ -280,7 +324,7 @@ cat .env | grep -E "AUTH_URL|TOKEN_URL|API_BASE"
 # Devem ser:
 # CONTA_AZUL_AUTH_URL=https://auth.contaazul.com/login
 # CONTA_AZUL_TOKEN_URL=https://auth.contaazul.com/oauth2/token
-# CONTA_AZUL_API_BASE_URL=https://api.contaazul.com
+# CONTA_AZUL_API_BASE_URL=https://api-v2.contaazul.com
 
 # 4. Ver logs detalhados durante fluxo real
 docker-compose logs -f api | grep -A 20 "Etapa 2"

@@ -40,14 +40,15 @@ class ContaAzulFinancialClient:
     - Busca de detalhes de parcelas
     """
 
-    BASE_URL = "https://api.contaazul.com/v1"
+    BASE_URL = "https://api-v2.contaazul.com"
     MIN_INTERVAL_BETWEEN_REQUESTS = 0.1  # 10 req/s
     RATE_LIMIT_REQUESTS = 600
     RATE_LIMIT_WINDOW = 60
 
     # Dominios permitidos para download de recibos
     ALLOWED_RECEIPT_DOMAINS = {
-        "api.contaazul.com",
+        "api.contaazul.com",  # Legacy support
+        "api-v2.contaazul.com",  # Current API
         "attachments.contaazul.com",
         "cdn.contaazul.com",
         "static.contaazul.com",

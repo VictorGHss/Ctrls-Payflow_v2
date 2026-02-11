@@ -71,6 +71,9 @@ docker-compose down
 CONTA_AZUL_CLIENT_ID=seu_client_id
 CONTA_AZUL_CLIENT_SECRET=seu_client_secret
 CONTA_AZUL_REDIRECT_URI=http://localhost:8000/oauth/callback
+# API v2 (não alterar a menos que a Conta Azul mude)
+CONTA_AZUL_API_BASE_URL=https://api-v2.contaazul.com
+CONTA_AZUL_AUTH_BASE_URL=https://auth.contaazul.com
 
 # === Segurança ===
 MASTER_KEY=base64_encoded_32_bytes  # Gerar com comando acima

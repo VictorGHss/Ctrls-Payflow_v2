@@ -93,8 +93,9 @@ def test_ssrf_no_hostname(client):
 
 
 def test_ssrf_valid_domain_api(client):
-    """✅ Aceitar api.contaazul.com."""
+    """✅ Aceitar api.contaazul.com e api-v2.contaazul.com."""
     assert client._validate_receipt_url("https://api.contaazul.com/attachments/123")
+    assert client._validate_receipt_url("https://api-v2.contaazul.com/attachments/123")
 
 
 def test_ssrf_valid_domain_cdn(client):
@@ -182,4 +183,5 @@ def test_allowed_domains_configured(client):
     """✅ Verificar que ALLOWED_RECEIPT_DOMAINS está configurado."""
     assert len(client.ALLOWED_RECEIPT_DOMAINS) > 0
     assert "api.contaazul.com" in client.ALLOWED_RECEIPT_DOMAINS
+    assert "api-v2.contaazul.com" in client.ALLOWED_RECEIPT_DOMAINS
     assert "cdn.contaazul.com" in client.ALLOWED_RECEIPT_DOMAINS

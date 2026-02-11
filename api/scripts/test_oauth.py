@@ -78,7 +78,7 @@ def test_oauth_flow() -> None:
         access_token = token_data.get("access_token")
 
         api_response = httpx.get(
-            f"{settings.CONTA_AZUL_API_BASE_URL}/v1/account",
+            f"{settings.CONTA_AZUL_API_BASE_URL}/company",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,
         )

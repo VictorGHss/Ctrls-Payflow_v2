@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     CONTA_AZUL_CLIENT_ID: str
     CONTA_AZUL_CLIENT_SECRET: str
     CONTA_AZUL_REDIRECT_URI: str
-    CONTA_AZUL_API_BASE_URL: str = "https://api.contaazul.com"
+    CONTA_AZUL_API_BASE_URL: str = "https://api-v2.contaazul.com"
+    CONTA_AZUL_AUTH_BASE_URL: str = "https://auth.contaazul.com"
     CONTA_AZUL_AUTH_URL: str = "https://auth.contaazul.com/login"
     CONTA_AZUL_TOKEN_URL: str = "https://auth.contaazul.com/oauth2/token"
 

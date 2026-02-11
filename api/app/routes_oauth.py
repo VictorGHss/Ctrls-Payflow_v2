@@ -199,9 +199,9 @@ def _get_account_info(access_token: str, settings) -> dict:
     Returns:
         Dicionário com informações da conta
     """
-    # Adaptar para endpoint real da Conta Azul (ex: /v1/account ou /me)
+    # Using API v2 endpoint - /company returns company info
     response = httpx.get(
-        f"{settings.CONTA_AZUL_API_BASE_URL}/v1/account",
+        f"{settings.CONTA_AZUL_API_BASE_URL}/company",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=30,
     )

@@ -67,6 +67,9 @@ nano .env  # ou vim, vi, etc
 CONTA_AZUL_CLIENT_ID=seu_client_id_producao
 CONTA_AZUL_CLIENT_SECRET=seu_client_secret_producao
 CONTA_AZUL_REDIRECT_URI=https://payflow.seu-dominio.com/oauth/callback
+# API v2 (não alterar a menos que a Conta Azul mude)
+CONTA_AZUL_API_BASE_URL=https://api-v2.contaazul.com
+CONTA_AZUL_AUTH_BASE_URL=https://auth.contaazul.com
 
 # === Segurança ===
 # Gerar com: python -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"

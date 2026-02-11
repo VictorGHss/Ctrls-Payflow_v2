@@ -8,7 +8,7 @@ Verifica:
 - URLs de autorização e token (oficiais vs. incorretos)
 - Formato do Authorization header
 - Validade do access_token
-- Resposta da API /v1/me
+- Resposta da API /company
 - Scopes e permissões
 """
 
@@ -45,11 +45,12 @@ class OAuth401Diagnostics:
         # URLs corretas oficiais
         correct_authorize = "https://auth.contaazul.com/login"
         correct_token = "https://auth.contaazul.com/oauth2/token"
-        correct_api = "https://api.contaazul.com"
+        correct_api = "https://api-v2.contaazul.com"
 
         # URLs INCORRETAS comuns
         wrong_authorize = "https://auth.contaazul.com/login?"  # com ? no final
-        wrong_api = "https://api.conta-azul.com"  # com hífen
+        wrong_api_v1 = "https://api.contaazul.com"  # API v1 antiga
+        wrong_api_hyphen = "https://api.conta-azul.com"  # com hífen
 
         logger.info(f"📍 Authorize URL configurada:")
         logger.info(f"   {self.settings.CONTA_AZUL_AUTH_URL}")
@@ -166,13 +167,13 @@ class OAuth401Diagnostics:
             self.issues.append(f"Erro ao testar token endpoint: {e}")
 
     async def test_api_me_with_fake_token(self):
-        """Testa endpoint /v1/me com token fake (para ver erro)."""
+        """Testa endpoint /company com token fake (para ver erro)."""
         logger.info("\n" + "=" * 80)
-        logger.info("🧪 TESTANDO API /v1/me (com token fake)")
+        logger.info("🧪 TESTANDO API /company (com token fake)")
         logger.info("=" * 80)
 
         fake_token = "fake_token_for_testing"
-        api_url = f"{self.settings.CONTA_AZUL_API_BASE_URL}/v1/me"
+        api_url = f"{self.settings.CONTA_AZUL_API_BASE_URL}/company"
 
         logger.info(f"📍 URL: {api_url}")
         logger.info(f"🔑 Authorization: Bearer {fake_token}")
@@ -223,7 +224,7 @@ class OAuth401Diagnostics:
 
         except Exception as e:
             logger.error(f"❌ Erro na requisição: {e}")
-            self.issues.append(f"Erro ao testar API /v1/me: {e}")
+            self.issues.append(f"Erro ao testar API /company: {e}")
 
     def check_scopes(self):
         """Verifica scopes configurados."""

@@ -27,7 +27,8 @@ class ContaAzulAuthService:
     SCOPES = "openid profile aws.cognito.signin.user.admin"
     AUTHORIZE_URL = "https://auth.contaazul.com/login"
     TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
-    API_URL = "https://api.contaazul.com/v1/me"
+    # API v2 endpoint - /company returns basic company info to validate token
+    API_URL = "https://api-v2.contaazul.com/company"
 
     def __init__(self, db: Session):
         """
@@ -216,7 +217,7 @@ class ContaAzulAuthService:
                 elif response.status_code == 401:
                     # Diagnóstico detalhado do 401
                     logger.error("=" * 80)
-                    logger.error("🚨 ERRO 401 UNAUTHORIZED ao buscar /v1/me")
+                    logger.error("🚨 ERRO 401 UNAUTHORIZED ao buscar company info")
                     logger.error("=" * 80)
                     logger.error(f"📍 URL chamada: {self.API_URL}")
                     logger.error(f"🔑 Token usado: {token_preview}")
@@ -274,7 +275,7 @@ class ContaAzulAuthService:
                         logger.error(f"   - Portal Conta Azul → Integrações → APIs")
                         logger.error(f"   - App em PRODUÇÃO (não sandbox)")
                         logger.error(f"   - Permissões de LEITURA habilitadas")
-                        logger.error(f"   - URLs corretas no .env (auth.contaazul.com, api.contaazul.com)")
+                        logger.error(f"   - URLs corretas no .env (auth.contaazul.com, api-v2.contaazul.com)")
                         logger.error("=" * 80)
 
                     except Exception:
