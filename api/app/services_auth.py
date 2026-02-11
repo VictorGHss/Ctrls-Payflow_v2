@@ -24,8 +24,10 @@ def normalize_datetime_utc(dt: datetime) -> datetime:
     """
     Normaliza datetime para UTC aware.
 
-    SQLite não armazena timezone info nativamente, então precisamos
-    garantir consistência ao salvar e ler datetimes.
+    DEPRECATED: Com TZDateTime, esta função não é mais necessária.
+    TZDateTime garante automaticamente que datetimes sejam sempre UTC aware.
+
+    Mantida apenas para compatibilidade retroativa e testes legados.
 
     Args:
         dt: Datetime naive ou aware
@@ -455,10 +457,10 @@ class ContaAzulAuthService:
             encrypted_refresh = self.crypto.encrypt(refresh_token)
 
             # Calcular data de expiração
-            # Salvar como naive UTC para compatibilidade com SQLite
-            expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
+            # TZDateTime garante que será armazenado como ISO 8601 com timezone
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
-            logger.debug(f"Salvando token com expires_at={expires_at.isoformat()} (naive UTC)")
+            logger.debug(f"Salvando token com expires_at={expires_at.isoformat()} (UTC aware)")
 
             # Verificar se já existe token para esta conta
             existing_token = (
@@ -536,8 +538,7 @@ class ContaAzulAuthService:
         """
         Verifica se token está expirado.
 
-        Trata datetimes naive (sem timezone) como UTC para compatibilidade
-        com SQLite que não armazena timezone info nativamente.
+        Com TZDateTime, expires_at é sempre timezone-aware (UTC).
 
         Args:
             token: Registro OAuthToken
@@ -546,7 +547,16 @@ class ContaAzulAuthService:
             True se expirado, False caso contrário
         """
         now = datetime.now(timezone.utc)
-        expires_at = normalize_datetime_utc(token.expires_at)
+        expires_at = token.expires_at
+
+        # TZDateTime garante que expires_at é sempre aware UTC
+        # Mas por segurança, normalizar se vier naive de alguma migração antiga
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            logger.warning(
+                f"Token {token.account_id[:10]}... tinha expires_at naive, "
+                "normalizando para UTC. Verifique migração de dados."
+            )
 
         is_expired = now >= expires_at
 
@@ -619,10 +629,10 @@ class ContaAzulAuthService:
                 encrypted_access = self.crypto.encrypt(new_access_token)
                 encrypted_refresh = self.crypto.encrypt(new_refresh_token)
 
-                # Atualizar no banco (naive UTC para compatibilidade SQLite)
+                # Atualizar no banco (TZDateTime lida com timezone)
                 token_record.access_token = encrypted_access
                 token_record.refresh_token = encrypted_refresh
-                token_record.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+                token_record.expires_at = datetime.now(timezone.utc) + timedelta(
                     seconds=expires_in
                 )
                 self.db.commit()

@@ -127,8 +127,8 @@ def oauth_callback(
         ) from e
 
     # Salvar tokens criptografados
-    # Usar naive UTC para compatibilidade com SQLite
-    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
+    # TZDateTime garante armazenamento como ISO 8601 com timezone
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
     try:
         encrypted_access = crypto.encrypt(access_token)
@@ -272,8 +272,8 @@ def refresh_access_token(db: Session, account_id: str) -> Optional[str]:
 
         token_record.access_token = encrypted_access
         token_record.refresh_token = encrypted_refresh
-        # Naive UTC para compatibilidade SQLite
-        token_record.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+        # TZDateTime lida com timezone automaticamente
+        token_record.expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=expires_in,
         )
         db.commit()

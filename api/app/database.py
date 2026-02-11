@@ -2,7 +2,7 @@
 Modelos SQLAlchemy para persistência.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -12,10 +12,72 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    TypeDecorator,
     UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+
+
+class TZDateTime(TypeDecorator):
+    """
+    Tipo customizado para armazenar datetime com timezone no SQLite.
+
+    Armazena como string ISO 8601 com timezone (ex: 2026-02-11T18:00:00+00:00).
+    Garante que datetimes sejam sempre timezone-aware (UTC).
+    """
+
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        """
+        Converte datetime Python → string ISO 8601 para salvar no banco.
+
+        Args:
+            value: datetime (aware ou naive)
+            dialect: Dialeto SQL
+
+        Returns:
+            String ISO 8601 com timezone
+        """
+        if value is None:
+            return None
+
+        # Se for naive, assumir UTC
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        # Se não for UTC, converter
+        elif value.tzinfo != timezone.utc:
+            value = value.astimezone(timezone.utc)
+
+        # Retornar como string ISO 8601
+        return value.isoformat()
+
+    def process_result_value(self, value, dialect):
+        """
+        Converte string ISO 8601 do banco → datetime Python aware.
+
+        Args:
+            value: String ISO 8601
+            dialect: Dialeto SQL
+
+        Returns:
+            datetime timezone-aware em UTC
+        """
+        if value is None:
+            return None
+
+        # Parse ISO 8601 string
+        dt = datetime.fromisoformat(value)
+
+        # Garantir que é UTC aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        elif dt.tzinfo != timezone.utc:
+            dt = dt.astimezone(timezone.utc)
+
+        return dt
 
 
 class Base(DeclarativeBase):
@@ -31,12 +93,14 @@ class OAuthToken(Base):
     account_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     access_token: Mapped[str] = mapped_column(Text, nullable=False)  # criptografado
     refresh_token: Mapped[str] = mapped_column(Text, nullable=False)  # criptografado
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # expires_at agora é sempre timezone-aware (UTC) - armazenado como ISO 8601
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def __repr__(self) -> str:
-        return f"<OAuthToken account_id={self.account_id}>"
+        tzinfo_str = f" tzinfo={self.expires_at.tzinfo}" if hasattr(self.expires_at, 'tzinfo') else ""
+        return f"<OAuthToken account_id={self.account_id} expires_at={self.expires_at.isoformat() if self.expires_at else None}{tzinfo_str}>"
 
 
 class PollingCheckpoint(Base):
