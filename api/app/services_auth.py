@@ -20,6 +20,30 @@ from app.logging import setup_logging
 logger = setup_logging(__name__)
 
 
+def normalize_datetime_utc(dt: datetime) -> datetime:
+    """
+    Normaliza datetime para UTC aware.
+
+    SQLite não armazena timezone info nativamente, então precisamos
+    garantir consistência ao salvar e ler datetimes.
+
+    Args:
+        dt: Datetime naive ou aware
+
+    Returns:
+        Datetime aware em UTC
+    """
+    if dt.tzinfo is None:
+        # Naive datetime - assumir UTC
+        return dt.replace(tzinfo=timezone.utc)
+    elif dt.tzinfo != timezone.utc:
+        # Aware mas não UTC - converter
+        return dt.astimezone(timezone.utc)
+    else:
+        # Já é UTC aware
+        return dt
+
+
 class ContaAzulAuthService:
     """Gerencia o fluxo OAuth2 Authorization Code com Conta Azul."""
 
@@ -431,7 +455,10 @@ class ContaAzulAuthService:
             encrypted_refresh = self.crypto.encrypt(refresh_token)
 
             # Calcular data de expiração
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            # Salvar como naive UTC para compatibilidade com SQLite
+            expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=expires_in)
+
+            logger.debug(f"Salvando token com expires_at={expires_at.isoformat()} (naive UTC)")
 
             # Verificar se já existe token para esta conta
             existing_token = (
@@ -509,13 +536,27 @@ class ContaAzulAuthService:
         """
         Verifica se token está expirado.
 
+        Trata datetimes naive (sem timezone) como UTC para compatibilidade
+        com SQLite que não armazena timezone info nativamente.
+
         Args:
             token: Registro OAuthToken
 
         Returns:
             True se expirado, False caso contrário
         """
-        return datetime.now(timezone.utc) >= token.expires_at
+        now = datetime.now(timezone.utc)
+        expires_at = normalize_datetime_utc(token.expires_at)
+
+        is_expired = now >= expires_at
+
+        if is_expired:
+            logger.debug(f"Token expirado: now={now.isoformat()}, expires_at={expires_at.isoformat()}")
+        else:
+            time_remaining = expires_at - now
+            logger.debug(f"Token válido por mais {time_remaining.total_seconds():.0f}s")
+
+        return is_expired
 
     async def refresh_access_token(self, account_id: str) -> Optional[str]:
         """
@@ -578,17 +619,17 @@ class ContaAzulAuthService:
                 encrypted_access = self.crypto.encrypt(new_access_token)
                 encrypted_refresh = self.crypto.encrypt(new_refresh_token)
 
-                # Atualizar no banco
+                # Atualizar no banco (naive UTC para compatibilidade SQLite)
                 token_record.access_token = encrypted_access
                 token_record.refresh_token = encrypted_refresh
-                token_record.expires_at = datetime.now(timezone.utc) + timedelta(
+                token_record.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
                     seconds=expires_in
                 )
                 self.db.commit()
 
                 logger.info(
                     f"Token renovado com sucesso para {account_id[:10]}... "
-                    f"(novo refresh_token salvo)"
+                    f"(novo refresh_token salvo, expires_at={token_record.expires_at.isoformat()})"
                 )
                 return new_access_token
 
