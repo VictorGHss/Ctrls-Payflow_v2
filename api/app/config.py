@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # Janela de segurança: voltar N minutos para não perder eventos
     POLLING_SAFETY_WINDOW_MINUTES: int = 10
 
+    # Tamanho de página para busca de contas a receber
+    RECEIVABLES_PAGE_SIZE: int = 100  # Máximo: 100
+
     # ===== API =====
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000

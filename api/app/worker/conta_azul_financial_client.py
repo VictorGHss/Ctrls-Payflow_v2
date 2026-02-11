@@ -155,41 +155,68 @@ class ContaAzulFinancialClient:
         status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Busca contas a receber usando API Financeiro v1.
+        Busca contas a receber usando API Financeiro v1 com paginação completa.
 
         Endpoint: GET /v1/financeiro/eventos-financeiros/contas-a-receber/buscar
 
         Args:
             account_id: ID da conta (para logs)
-            changed_since: Data/hora desde quando buscar alterações
-            status: Filtro por status (ex: 'RECEBIDO', 'PENDENTE', 'VENCIDO')
+            changed_since: Data/hora (UTC) desde quando buscar alterações
+            status: Filtro por status - aceita 'received', 'pending', etc (convertido para PT-BR)
 
         Returns:
-            Lista de contas a receber
+            Lista consolidada de contas a receber de todas as páginas
         """
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+
+        # Timezone São Paulo (GMT-3)
+        sp_tz = ZoneInfo("America/Sao_Paulo")
+
+        # Preparar parâmetros obrigatórios e opcionais
+        now_utc = datetime.now(timezone.utc)
+        now_sp = now_utc.astimezone(sp_tz)
+
         params = {}
 
-        # Converter changed_since para formato aceito pela API
+        # data_alteracao_de e data_alteracao_ate (formato ISO sem 'Z')
         if changed_since:
             if isinstance(changed_since, datetime):
-                # API espera formato ISO 8601
-                changed_since_param = changed_since.isoformat()
+                changed_since_sp = changed_since.astimezone(sp_tz)
+                # Formato: 2026-01-12T18:38:19 (sem timezone offset)
+                params["data_alteracao_de"] = changed_since_sp.strftime("%Y-%m-%dT%H:%M:%S")
             else:
-                changed_since_param = str(changed_since)
+                # Se vier string, tentar converter
+                changed_since_dt = datetime.fromisoformat(str(changed_since).replace('Z', '+00:00'))
+                changed_since_sp = changed_since_dt.astimezone(sp_tz)
+                params["data_alteracao_de"] = changed_since_sp.strftime("%Y-%m-%dT%H:%M:%S")
 
-            params["dataAlteracaoInicio"] = changed_since_param
+            params["data_alteracao_ate"] = now_sp.strftime("%Y-%m-%dT%H:%M:%S")
 
             logger.info(
-                f"📅 Consultando contas a receber desde: {changed_since_param} "
+                f"📅 Consultando contas a receber alteradas entre: "
+                f"{params['data_alteracao_de']} e {params['data_alteracao_ate']} (SP) "
                 f"(conta: {account_id[:10]}...)"
             )
         else:
-            logger.info(f"📅 Consultando todas as contas a receber (conta: {account_id[:10]}...)")
+            logger.info(f"📅 Consultando contas a receber (sem filtro de alteração) (conta: {account_id[:10]}...)")
 
-        # Mapear status para valores aceitos pela API
-        # Status possíveis: RECEBIDO, PENDENTE, VENCIDO, CANCELADO
+        # data_vencimento_de e data_vencimento_ate (OBRIGATÓRIOS, formato YYYY-MM-DD)
+        # Janela segura: 365 dias antes de changed_since até hoje + 1 dia
+        if changed_since:
+            venc_de = (changed_since - timedelta(days=365)).date()
+        else:
+            venc_de = (now_utc - timedelta(days=365)).date()
+
+        venc_ate = (now_utc + timedelta(days=1)).date()
+
+        params["data_vencimento_de"] = venc_de.strftime("%Y-%m-%d")
+        params["data_vencimento_ate"] = venc_ate.strftime("%Y-%m-%d")
+
+        logger.debug(f"   Janela de vencimento: {params['data_vencimento_de']} a {params['data_vencimento_ate']}")
+
+        # Status: converter inglês para português
         if status:
-            # Converter 'received' (inglês) para 'RECEBIDO' (português)
             status_map = {
                 "received": "RECEBIDO",
                 "pending": "PENDENTE",
@@ -197,91 +224,147 @@ class ContaAzulFinancialClient:
                 "cancelled": "CANCELADO",
             }
             api_status = status_map.get(status.lower(), status.upper())
-            params["situacao"] = api_status
-            logger.debug(f"   Filtro de status: {api_status}")
+            # Status pode ser array: ["RECEBIDO", "RECEBIDO_PARCIAL"]
+            if api_status == "RECEBIDO":
+                params["status"] = ["RECEBIDO", "RECEBIDO_PARCIAL"]
+            else:
+                params["status"] = [api_status]
+            logger.debug(f"   Filtro de status: {params['status']}")
 
-        # Adicionar paginação (começar com página 1)
-        params.setdefault("pagina", 1)
-        params.setdefault("tamanhoPagina", 50)  # Máximo aceito
+        # Paginação
+        page_size = getattr(self.settings, 'RECEIVABLES_PAGE_SIZE', 100)
+        params["tamanho_pagina"] = page_size
 
         endpoint = "/v1/financeiro/eventos-financeiros/contas-a-receber/buscar"
 
-        logger.debug(f"🔍 Request: GET {self.BASE_URL}{endpoint}")
-        logger.debug(f"   Parâmetros: {params}")
+        # Buscar todas as páginas
+        all_items = []
+        current_page = 1
+        total_pages_estimate = "?"
 
-        try:
-            data = await self._request("GET", endpoint, params=params)
+        while True:
+            params["pagina"] = current_page
 
-            # A API retorna diferentes estruturas, verificar ambas
-            items = data.get("contas", []) or data.get("data", []) or data.get("items", [])
-
-            total = data.get("total", len(items))
-
-            logger.info(f"✅ Encontradas {len(items)} conta(s) a receber (total: {total})")
-
-            if items:
-                logger.debug(f"   Primeira conta: ID={items[0].get('id', 'N/A')}")
-
-            return items
-
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-
-            # Log detalhado de erros HTTP
-            if status_code == 400:
-                logger.error(
-                    f"❌ Erro 400 Bad Request ao buscar contas a receber\n"
-                    f"   Endpoint: {endpoint}\n"
-                    f"   Parâmetros: {params}\n"
-                    f"   Resposta: {e.response.text[:500]}\n"
-                    f"   Possível causa: Parâmetros inválidos ou formato incorreto"
-                )
-            elif status_code == 401:
-                logger.error(
-                    f"❌ Erro 401 Unauthorized ao buscar contas a receber\n"
-                    f"   Possível causa: Token expirado ou inválido\n"
-                    f"   Endpoint: {endpoint}"
-                )
-            elif status_code == 403:
-                logger.error(
-                    f"❌ Erro 403 Forbidden ao buscar contas a receber\n"
-                    f"   Possível causa: Sem permissão para acessar contas a receber\n"
-                    f"   Endpoint: {endpoint}"
-                )
-            elif status_code == 404:
-                logger.error(
-                    f"❌ Erro 404 Not Found ao buscar contas a receber\n"
-                    f"   Endpoint: {endpoint}\n"
-                    f"   URL completa: {self.BASE_URL}{endpoint}\n"
-                    f"   Possível causa: Endpoint incorreto ou API mudou"
-                )
-            elif status_code == 429:
-                logger.error(
-                    f"❌ Erro 429 Rate Limit ao buscar contas a receber\n"
-                    f"   Retry-After: {e.response.headers.get('Retry-After', 'N/A')}s"
-                )
-            elif status_code >= 500:
-                logger.error(
-                    f"❌ Erro {status_code} Server Error ao buscar contas a receber\n"
-                    f"   Endpoint: {endpoint}\n"
-                    f"   Possível causa: Instabilidade na API da Conta Azul"
-                )
-            else:
-                logger.error(
-                    f"❌ Erro HTTP {status_code} ao buscar contas a receber\n"
-                    f"   Endpoint: {endpoint}\n"
-                    f"   Resposta: {e.response.text[:500]}"
-                )
-
-            raise
-
-        except Exception as e:
-            logger.error(
-                f"❌ Erro inesperado ao buscar contas a receber: {type(e).__name__}: {e}\n"
-                f"   Endpoint: {endpoint}\n"
-                f"   Conta: {account_id[:10]}..."
+            logger.debug(
+                f"🔍 Request página {current_page}/{total_pages_estimate}: "
+                f"GET {self.BASE_URL}{endpoint}"
             )
-            raise
+            logger.debug(f"   Parâmetros: {params}")
+
+            try:
+                data = await self._request("GET", endpoint, params=params)
+
+                # Extrair itens (estrutura pode variar)
+                items = data.get("itens", []) or data.get("contas", []) or data.get("data", []) or []
+
+                if not items:
+                    logger.debug(f"   Página {current_page} vazia, encerrando paginação")
+                    break
+
+                all_items.extend(items)
+                logger.info(f"   ✅ Página {current_page}: +{len(items)} item(ns) (total acumulado: {len(all_items)})")
+
+                # Atualizar estimativa de páginas totais
+                if "total" in data and data["total"] > 0:
+                    total_pages_estimate = (data["total"] + page_size - 1) // page_size
+
+                # Condição de parada: menos itens que page_size = última página
+                if len(items) < page_size:
+                    logger.debug(f"   Última página atingida (itens < {page_size})")
+                    break
+
+                current_page += 1
+
+                # Segurança: máximo 100 páginas (evitar loop infinito)
+                if current_page > 100:
+                    logger.warning(f"⚠️  Limite de 100 páginas atingido, encerrando busca")
+                    break
+
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+
+                # Log detalhado de erros HTTP
+                if status_code == 400:
+                    logger.error(
+                        f"❌ Erro 400 Bad Request ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Parâmetros: {params}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Resposta: {e.response.text[:500]}\n"
+                        f"   Possível causa: Parâmetros inválidos, formato incorreto ou campos obrigatórios faltando"
+                    )
+                elif status_code == 401:
+                    logger.error(
+                        f"❌ Erro 401 Unauthorized ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Possível causa: Token expirado ou inválido"
+                    )
+                elif status_code == 403:
+                    logger.error(
+                        f"❌ Erro 403 Forbidden ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Possível causa: Sem permissão para acessar contas a receber"
+                    )
+                elif status_code == 404:
+                    logger.error(
+                        f"❌ Erro 404 Not Found ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Resposta: {e.response.text[:500]}\n"
+                        f"   ⚠️  ENDPOINT/PATH INVÁLIDO! Verifique:\n"
+                        f"      - Prefixo /v1 está presente?\n"
+                        f"      - Recurso correto: /financeiro/eventos-financeiros/contas-a-receber/buscar\n"
+                        f"      - Base URL: {self.BASE_URL}"
+                    )
+                elif status_code == 429:
+                    logger.error(
+                        f"❌ Erro 429 Rate Limit ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Retry-After: {e.response.headers.get('Retry-After', 'N/A')}s"
+                    )
+                elif status_code >= 500:
+                    logger.error(
+                        f"❌ Erro {status_code} Server Error ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Resposta: {e.response.text[:500]}\n"
+                        f"   Possível causa: Instabilidade na API da Conta Azul"
+                    )
+                else:
+                    logger.error(
+                        f"❌ Erro HTTP {status_code} ao buscar contas a receber\n"
+                        f"   Método: GET\n"
+                        f"   URL: {self.BASE_URL}{endpoint}\n"
+                        f"   Status Code: {status_code}\n"
+                        f"   Resposta: {e.response.text[:500]}"
+                    )
+
+                raise
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Erro inesperado ao buscar contas a receber: {type(e).__name__}: {e}\n"
+                    f"   Endpoint: {endpoint}\n"
+                    f"   Conta: {account_id[:10]}..."
+                )
+                raise
+
+        # Retornar lista consolidada de todas as páginas
+        logger.info(f"✅ Total consolidado: {len(all_items)} conta(s) a receber de {current_page - 1} página(s)")
+
+        if all_items:
+            logger.debug(f"   Primeira conta: ID={all_items[0].get('id', 'N/A')}")
+
+        return all_items
 
     async def get_receivable_details(
         self,
