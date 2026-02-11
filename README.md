@@ -281,10 +281,13 @@ python scripts/contaazul_smoke_test.py
 ```
 
 O script faz uma chamada real à API v2 da Conta Azul:
-- **Endpoint**: `https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=1`
+- **Endpoint**: `https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=10`
 - **Retorno esperado**: HTTP 200 (token válido)
 - **Retorno 401**: Token inválido ou expirado
+- **Retorno 400**: Parâmetros incorretos
 - **Retorno 404**: Endpoint não existe (verificar URL base)
+
+**Nota**: O parâmetro `tamanho_pagina` deve ser um dos valores: 10, 20, 50, 100, 200, 500, 1000.
 
 Este smoke test é executado automaticamente durante o fluxo OAuth no callback.
 

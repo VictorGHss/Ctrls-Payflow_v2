@@ -30,7 +30,8 @@ class ContaAzulAuthService:
     TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
     # API v2 endpoint - /v1/pessoas é um endpoint real para smoke test do token
     # Retorna lista de pessoas cadastradas (mesmo vazio, confirma que token funciona)
-    API_URL = "https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=1"
+    # tamanho_pagina deve ser um dos valores: 10, 20, 50, 100, 200, 500, 1000
+    API_URL = "https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=10"
 
     def __init__(self, db: Session):
         """

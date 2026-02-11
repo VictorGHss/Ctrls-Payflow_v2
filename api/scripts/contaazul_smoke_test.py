@@ -26,7 +26,8 @@ from app.logging import setup_logging
 logger = setup_logging(__name__)
 
 # Endpoint para smoke test (deve existir e estar documentado)
-SMOKE_TEST_URL = "https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=1"
+# tamanho_pagina deve ser um dos valores: 10, 20, 50, 100, 200, 500, 1000
+SMOKE_TEST_URL = "https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=10"
 
 
 async def smoke_test_token(access_token: str) -> bool:
