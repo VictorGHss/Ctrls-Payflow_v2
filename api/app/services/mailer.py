@@ -158,7 +158,7 @@ class MailerService:
         Envia email com recibo em anexo.
 
         Args:
-            doctor_email: Email do destinatário
+            doctor_email: Email do destinatário (médico)
             customer_name: Nome do cliente/paciente
             amount: Valor da transação
             receipt_date: Data da transação (ISO format ou similar)
@@ -169,10 +169,31 @@ class MailerService:
         Returns:
             True se enviado com sucesso, False caso contrário
         """
-        # Validar email do destinatário
+        # Validar email do destinatário original
         if not self._is_valid_email(doctor_email):
             logger.error(f"Email do destinatário inválido: {doctor_email}")
             return False
+
+        # Aplicar override de destinatário se configurado
+        actual_recipient = doctor_email
+        override_email = self.settings.OVERRIDE_RECIPIENT_EMAIL
+
+        if override_email:
+            # Validar email de override
+            if not self._is_valid_email(override_email):
+                logger.error(
+                    f"OVERRIDE_RECIPIENT_EMAIL inválido: {override_email}. "
+                    f"Usando destinatário real: {doctor_email}"
+                )
+            else:
+                # Aplicar override
+                actual_recipient = override_email
+                logger.info(
+                    f"📧 Override de destinatário ativado: "
+                    f"Real={doctor_email} → Override={override_email}"
+                )
+        else:
+            logger.debug(f"📧 Destinatário: {doctor_email} (sem override)")
 
         # Validar reply-to se fornecido
         if reply_to and not self._is_valid_email(reply_to):
@@ -189,7 +210,7 @@ class MailerService:
         # Construir email
         try:
             msg = self._build_message(
-                doctor_email=doctor_email,
+                doctor_email=actual_recipient,  # ← Usa email com override aplicado
                 customer_name=customer_name,
                 amount=amount,
                 receipt_date=receipt_date,
@@ -199,9 +220,17 @@ class MailerService:
             )
 
             # Enviar
-            self._send_via_smtp(msg, doctor_email)
+            self._send_via_smtp(msg, actual_recipient)
 
-            logger.info(f"Email enviado com sucesso para {doctor_email}")
+            # Log de sucesso com informação de override
+            if override_email and actual_recipient != doctor_email:
+                logger.info(
+                    f"✅ Email enviado com sucesso (override): "
+                    f"Real={doctor_email} → Enviado para={actual_recipient}"
+                )
+            else:
+                logger.info(f"✅ Email enviado com sucesso para {actual_recipient}")
+
             return True
 
         except Exception as e:

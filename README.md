@@ -89,6 +89,11 @@ SMTP_REPLY_TO=seu_email@gmail.com
 SMTP_USE_TLS=true
 SMTP_TIMEOUT=10
 
+# Override de destinatário (OPCIONAL - apenas para testes)
+# Se setado, todos os emails serão enviados para este endereço
+# IMPORTANTE: Deixar vazio em produção!
+# OVERRIDE_RECIPIENT_EMAIL=testes@seudominio.com
+
 # === Database ===
 DATABASE_URL=sqlite:///./data/payflow.db
 
@@ -148,6 +153,32 @@ SMTP_USE_SSL=false
 SMTP_PORT=465
 SMTP_USE_TLS=false
 SMTP_USE_SSL=true  # SSL direto
+```
+
+### Override de Destinatário (Testes)
+
+Para testar envio de emails **sem enviar para médicos reais**, use:
+
+```env
+OVERRIDE_RECIPIENT_EMAIL=testes@seudominio.com
+```
+
+**Como funciona:**
+- ✅ Todos os emails serão enviados para `testes@seudominio.com`
+- ✅ O sistema loga o destinatário real e o override
+- ✅ Útil para desenvolvimento e testes
+- ⚠️ **IMPORTANTE**: Deixar vazio em produção!
+
+**Exemplo de log com override:**
+```
+📧 Override de destinatário ativado: Real=doctor@hospital.com → Override=testes@seudominio.com
+✅ Email enviado com sucesso (override): Real=doctor@hospital.com → Enviado para=testes@seudominio.com
+```
+
+**Sem override:**
+```
+📧 Destinatário: doctor@hospital.com (sem override)
+✅ Email enviado com sucesso para doctor@hospital.com
 ```
 
 ## 🔌 Endpoints Principais
@@ -266,6 +297,7 @@ pytest tests/test_mailer.py -v      # Email
 pytest tests/test_worker.py -v      # Worker
 pytest tests/test_security_ssrf.py -v  # SSRF
 pytest tests/test_datetime_fix.py -v    # Datetime timezone-aware
+pytest tests/test_email_override.py -v  # Override de destinatário
 ```
 
 ### 🕒 Debug de Tokens (Datetime)

@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     SMTP_USE_SSL: bool = False  # Para porta 465
     SMTP_TIMEOUT: int = 10  # Timeout em segundos
 
+    # Override de destinatário (para testes)
+    # Se setado, todos os emails serão enviados para este endereço
+    # em vez do email real do médico
+    OVERRIDE_RECIPIENT_EMAIL: Optional[str] = None
+
     # ===== Polling =====
     POLLING_INTERVAL_SECONDS: int = 300  # 5 minutos
     POLLING_INITIAL_LOOKBACK_DAYS: int = 30
