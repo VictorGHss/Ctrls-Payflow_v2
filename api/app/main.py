@@ -26,7 +26,11 @@ app = FastAPI(
 # Middleware de segurança
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.contaazul.com"],
+    allowed_hosts=[
+        "payflow.ctrls.dev.br",
+        "localhost",
+        "127.0.0.1",
+    ],
 )
 
 app.add_middleware(
