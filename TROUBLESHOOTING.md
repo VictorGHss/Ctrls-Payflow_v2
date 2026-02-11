@@ -127,30 +127,218 @@ lsof -i :8000
 **Erro nos logs:**
 ```
 ERROR: Falha ao trocar code por tokens: 401 Client Error: Unauthorized
+🚨 ERRO 401 UNAUTHORIZED na troca code → tokens
 ```
 
 **Causas:**
 - Client ID ou Client Secret incorretos
 - Authorization header mal formatado
+- Credenciais de ambiente errado (sandbox vs produção)
 
 **Solução:**
 ```bash
-# Verificar credenciais no .env
+# 1. Verificar credenciais no .env
 cat .env | grep CONTA_AZUL
 
-# Comparar com Portal Conta Azul
-# portal.contaazul.com → Integrações → APIs
+# 2. Comparar com Portal Conta Azul
+# Acessar: portal.contaazul.com → Integrações → APIs
+# Copiar CLIENT_ID e CLIENT_SECRET EXATAMENTE como aparecem
 
-# Gerar novo Client Secret se necessário
-
-# Atualizar .env
+# 3. Atualizar .env (sem espaços extras)
 nano .env
-# CONTA_AZUL_CLIENT_ID=...
-# CONTA_AZUL_CLIENT_SECRET=...
+# CONTA_AZUL_CLIENT_ID=sua_client_id_aqui
+# CONTA_AZUL_CLIENT_SECRET=sua_client_secret_aqui
 
-# Reiniciar
+# 4. Reiniciar
 docker-compose restart api
 ```
+
+**Diagnóstico detalhado:**
+```bash
+# Executar script de diagnóstico
+docker-compose exec api python scripts/diagnose_401.py
+```
+
+#### A1. "401 Unauthorized" ao buscar informações da conta (/v1/me)
+
+**Erro nos logs:**
+```
+ERROR: Erro ao buscar informações da conta: 401
+🚨 ERRO 401 UNAUTHORIZED ao buscar /v1/me
+```
+
+**Este é o erro mais comum após exchange do token!**
+
+**Causas Comuns:**
+
+##### 1. Token expirado ou inválido
+```
+Error Type: invalid_token
+Description: The access token provided is expired, revoked, malformed, or invalid
+```
+
+**Solução:**
+- Token pode ter expirado durante o processo
+- Verificar `expires_in` no log (deve ser ~3600s)
+- Refazer o fluxo OAuth completo
+- Se persistir, verificar se o clock do servidor está sincronizado
+
+##### 2. Scope insuficiente
+```
+Error Type: insufficient_scope
+Description: The request requires higher privileges than provided by the access token
+```
+
+**Solução:**
+```bash
+# 1. Verificar scopes no código (services_auth.py)
+cat app/services_auth.py | grep "SCOPES ="
+# Deve ser: openid profile aws.cognito.signin.user.admin
+
+# 2. No Portal Conta Azul:
+#    - Integrações → APIs → Seu App
+#    - Verificar PERMISSÕES DE LEITURA habilitadas
+#    - Verificar SCOPES: openid, profile, aws.cognito.signin.user.admin
+
+# 3. Revogar autorização e refazer OAuth
+#    - Portal Conta Azul → Integrações → Autorizações
+#    - Revogar a autorização existente
+#    - Fazer novo fluxo: GET /connect
+```
+
+##### 3. App em Sandbox mas usando API de Produção
+```
+Error Type: invalid_token
+Message: Token not valid for production API
+```
+
+**Solução:**
+```bash
+# Verificar ambiente do app no Portal Conta Azul
+# Se app estiver em SANDBOX:
+# 1. Migrar app para PRODUÇÃO, OU
+# 2. Usar API de sandbox (se existir)
+
+# URLs de Produção (padrão):
+# CONTA_AZUL_AUTH_URL=https://auth.contaazul.com/login
+# CONTA_AZUL_TOKEN_URL=https://auth.contaazul.com/oauth2/token
+# CONTA_AZUL_API_BASE_URL=https://api.contaazul.com
+```
+
+##### 4. Audience incorreta
+```
+Error Type: invalid_token
+Description: Token audience does not match
+```
+
+**Solução:**
+```bash
+# Verificar URL da API no .env
+cat .env | grep API_BASE_URL
+# Deve ser: https://api.contaazul.com (SEM hífen em "contaazul")
+
+# URLs CORRETAS:
+# CONTA_AZUL_API_BASE_URL=https://api.contaazul.com
+
+# URLs INCORRETAS (não usar):
+# ❌ https://api.conta-azul.com (com hífen)
+# ❌ http://api.contaazul.com (sem HTTPS)
+# ❌ https://api.contaazul.com.br (com .br)
+```
+
+##### 5. App sem permissões no Portal Conta Azul
+```
+Error Type: access_denied
+Description: App does not have required permissions
+```
+
+**Solução:**
+```bash
+# No Portal Conta Azul (portal.contaazul.com):
+# 1. Integrações → APIs → Seu App
+# 2. Aba "Permissões" ou "Scopes"
+# 3. Habilitar:
+#    - Leitura de dados da empresa
+#    - Leitura de dados financeiros
+#    - Leitura de contas a receber
+# 4. Salvar mudanças
+# 5. Revogar autorizações antigas e refazer OAuth
+```
+
+**Verificação passo-a-passo:**
+```bash
+# 1. Confirmar que fluxo segue Authorization Code
+cat app/services_auth.py | grep "grant_type"
+# Deve ter: grant_type=authorization_code
+
+# 2. Confirmar que usa Bearer token
+cat app/services_auth.py | grep "Bearer"
+# Deve ter: Authorization: Bearer {access_token}
+
+# 3. Confirmar URLs oficiais
+cat .env | grep -E "AUTH_URL|TOKEN_URL|API_BASE"
+# Devem ser:
+# CONTA_AZUL_AUTH_URL=https://auth.contaazul.com/login
+# CONTA_AZUL_TOKEN_URL=https://auth.contaazul.com/oauth2/token
+# CONTA_AZUL_API_BASE_URL=https://api.contaazul.com
+
+# 4. Ver logs detalhados durante fluxo real
+docker-compose logs -f api | grep -A 20 "Etapa 2"
+# Vai mostrar diagnóstico completo do erro 401
+```
+
+**Diagnóstico automático:**
+```bash
+# Script de diagnóstico completo
+docker-compose exec api python scripts/diagnose_401.py
+
+# Vai verificar:
+# - URLs corretas
+# - Formato das credenciais
+# - Base64 encoding
+# - Scopes configurados
+# - Testar endpoints (com tokens fake para ver erros)
+```
+
+**Log de exemplo com diagnóstico completo:**
+```
+🚨 ERRO 401 UNAUTHORIZED ao buscar /v1/me
+================================================================================
+📍 URL chamada: https://api.contaazul.com/v1/me
+🔑 Token usado: eyJhbGci...xMjM=
+📊 Status Code: 401
+
+📋 Response Body:
+   {'error': 'invalid_token', 'error_description': 'The access token expired'}
+
+📋 Análise do erro:
+   Error Type: invalid_token
+   Description: The access token expired
+
+💡 Possíveis causas:
+   1. Token expirado (verifique expires_in do token)
+   2. Token malformado ou corrompido
+   3. Token de ambiente errado (sandbox vs prod)
+
+🔧 Verificar:
+   - Portal Conta Azul → Integrações → APIs
+   - App em PRODUÇÃO (não sandbox)
+   - Permissões de LEITURA habilitadas
+   - URLs corretas no .env (auth.contaazul.com, api.contaazul.com)
+================================================================================
+```
+
+**Checklist de correção:**
+- [ ] Credenciais CLIENT_ID/SECRET corretas no .env
+- [ ] URLs oficiais configuradas (auth.contaazul.com, api.contaazul.com)
+- [ ] App em PRODUÇÃO no Portal Conta Azul
+- [ ] Permissões de leitura habilitadas no app
+- [ ] Scopes corretos: openid profile aws.cognito.signin.user.admin
+- [ ] Token não expirado (expires_in ~3600s)
+- [ ] Authorization header: `Bearer {access_token}`
+- [ ] Nenhum caractere extra ou espaço nas credenciais
+- [ ] REDIRECT_URI exatamente igual no Portal e .env
+- [ ] Conta autorizada tem acesso aos dados
 
 #### B. "redirect_uri_mismatch"
 
