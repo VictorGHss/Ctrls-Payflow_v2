@@ -7,25 +7,28 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: payflow-api
-    ports:
-      - "8000:8000"
-    environment:
-      - PYTHONUNBUFFERED=1
-      - API_LOG_LEVEL=info
     env_file:
       - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      API_LOG_LEVEL: "info"
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     networks:
       - payflow_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).read()"
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # ===== WORKER =====
   worker:
@@ -33,13 +36,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: payflow-worker
-    environment:
-      - PYTHONUNBUFFERED=1
-      - API_LOG_LEVEL=info
     env_file:
       - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      API_LOG_LEVEL: "info"
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     command: python -m app.worker.main
     networks:
       - payflow_net
@@ -52,29 +56,16 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: payflow-cloudflared
+    env_file:
+      - .env
     command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    restart: unless-stopped
     networks:
       - payflow_net
+    restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://api:8000/healthz"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
 
-# ===== NETWORKS =====
 networks:
   payflow_net:
     driver: bridge
-
-# ===== VOLUMES =====
-volumes:
-  # data é um mount direto (./data), não um volume Docker
-
-
