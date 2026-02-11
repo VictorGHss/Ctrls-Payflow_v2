@@ -267,6 +267,27 @@ pytest tests/test_worker.py -v      # Worker
 pytest tests/test_security_ssrf.py -v  # SSRF
 ```
 
+### 🔐 OAuth Smoke Test
+
+Para testar se um access_token da Conta Azul está funcionando:
+
+```bash
+# Com token na linha de comando
+python scripts/contaazul_smoke_test.py <access_token>
+
+# Ou via variável de ambiente
+export CONTA_AZUL_ACCESS_TOKEN=<token>
+python scripts/contaazul_smoke_test.py
+```
+
+O script faz uma chamada real à API v2 da Conta Azul:
+- **Endpoint**: `https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=1`
+- **Retorno esperado**: HTTP 200 (token válido)
+- **Retorno 401**: Token inválido ou expirado
+- **Retorno 404**: Endpoint não existe (verificar URL base)
+
+Este smoke test é executado automaticamente durante o fluxo OAuth no callback.
+
 ## 📚 Documentação Adicional
 
 - **[DEPLOY.md](DEPLOY.md)** - Deploy com Docker + Cloudflare Tunnel + Access

@@ -93,6 +93,7 @@ async def oauth_callback(
 
     access_token = token_data.get("access_token")
     refresh_token = token_data.get("refresh_token")
+    id_token = token_data.get("id_token")  # Extrair id_token se presente
     expires_in = token_data.get("expires_in", 3600)
 
     if not access_token or not refresh_token:
@@ -103,7 +104,7 @@ async def oauth_callback(
 
     # 2. Buscar informações da conta usando o access_token
     logger.info("Etapa 2: Buscando informações da conta...")
-    account_info = await auth_service.get_account_info(access_token)
+    account_info = await auth_service.get_account_info(access_token, id_token)
 
     if not account_info:
         logger.error("Falha na etapa 2: get_account_info")

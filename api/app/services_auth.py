@@ -4,6 +4,7 @@ Gerencia autorização, token exchange e renovação.
 """
 
 import base64
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
@@ -27,8 +28,9 @@ class ContaAzulAuthService:
     SCOPES = "openid profile aws.cognito.signin.user.admin"
     AUTHORIZE_URL = "https://auth.contaazul.com/login"
     TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
-    # API v2 endpoint - /company returns basic company info to validate token
-    API_URL = "https://api-v2.contaazul.com/company"
+    # API v2 endpoint - /v1/pessoas é um endpoint real para smoke test do token
+    # Retorna lista de pessoas cadastradas (mesmo vazio, confirma que token funciona)
+    API_URL = "https://api-v2.contaazul.com/v1/pessoas?pagina=1&tamanho_pagina=1"
 
     def __init__(self, db: Session):
         """
@@ -61,6 +63,45 @@ class ContaAzulAuthService:
 
         logger.info(f"URL de autorização gerada com state={state[:10]}...")
         return auth_url, state
+
+    def _decode_id_token(self, id_token: str) -> Optional[dict]:
+        """
+        Decodifica id_token JWT para extrair informações do usuário.
+
+        ATENÇÃO: Este método faz decodificação SEM validação de assinatura.
+        Usar apenas para extrair claims não-críticos do token já validado.
+
+        Args:
+            id_token: JWT id_token recebido na resposta OAuth
+
+        Returns:
+            Dicionário com claims do token ou None se falhou
+        """
+        try:
+            # JWT tem 3 partes separadas por ponto: header.payload.signature
+            parts = id_token.split('.')
+            if len(parts) != 3:
+                logger.error("❌ id_token inválido: não possui 3 partes")
+                return None
+
+            # Decodificar payload (segunda parte)
+            payload_b64 = parts[1]
+            # Adicionar padding se necessário
+            padding = 4 - len(payload_b64) % 4
+            if padding != 4:
+                payload_b64 += '=' * padding
+
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            payload = json.loads(payload_bytes.decode('utf-8'))
+
+            logger.info(f"✅ id_token decodificado com sucesso")
+            logger.debug(f"📋 Claims: sub={payload.get('sub', 'N/A')}, email={payload.get('email', 'N/A')}")
+
+            return payload
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao decodificar id_token: {e}")
+            return None
 
     async def exchange_code_for_tokens(
         self,
@@ -115,6 +156,14 @@ class ContaAzulAuthService:
                         logger.error("⚠️  access_token ausente na resposta!")
                     if "refresh_token" not in token_data:
                         logger.error("⚠️  refresh_token ausente na resposta!")
+
+                    # Verificar se há id_token (contém informações do usuário)
+                    if "id_token" in token_data:
+                        logger.info("📋 id_token presente na resposta")
+                        # Armazenar id_token para uso posterior
+                        token_data["_has_id_token"] = True
+                    else:
+                        logger.warning("⚠️  id_token ausente na resposta")
 
                     return token_data
 
@@ -175,12 +224,16 @@ class ContaAzulAuthService:
             logger.error(traceback.format_exc())
             return None
 
-    async def get_account_info(self, access_token: str) -> Optional[dict]:
+    async def get_account_info(self, access_token: str, id_token: Optional[str] = None) -> Optional[dict]:
         """
         Busca informações da conta autenticada.
 
+        Faz smoke test do access_token chamando a API e extrai informações
+        do id_token se disponível.
+
         Args:
             access_token: Token de acesso (plaintext)
+            id_token: ID token JWT (opcional, contém informações do usuário)
 
         Returns:
             Dicionário com informações da conta ou None
@@ -188,7 +241,7 @@ class ContaAzulAuthService:
         try:
             # Log seguro - apenas primeiros e últimos caracteres do token
             token_preview = f"{access_token[:8]}...{access_token[-4:]}" if len(access_token) > 12 else "***"
-            logger.info(f"🔍 Buscando informações da conta com token {token_preview}")
+            logger.info(f"🔍 Validando token com smoke test na API")
             logger.debug(f"📍 URL: {self.API_URL}")
 
             async with httpx.AsyncClient(timeout=30) as client:
@@ -198,7 +251,7 @@ class ContaAzulAuthService:
                 )
 
                 # Log detalhado da resposta
-                logger.info(f"📊 Status Code: {response.status_code}")
+                logger.info(f"📊 Smoke Test Status Code: {response.status_code}")
 
                 # Log headers relevantes (sem secrets)
                 relevant_headers = ["content-type", "x-ratelimit-remaining", "x-ratelimit-reset", "www-authenticate"]
@@ -207,10 +260,38 @@ class ContaAzulAuthService:
                         logger.debug(f"📋 Header {header}: {response.headers[header]}")
 
                 if response.status_code == 200:
-                    account_info = response.json()
+                    api_response = response.json()
+                    logger.info(f"✅ Token validado com sucesso - API respondeu 200")
+                    logger.debug(f"📋 API Response: {str(api_response)[:200]}...")
+
+                    # Extrair informações do id_token se disponível
+                    account_info = {}
+
+                    if id_token:
+                        logger.info("🔓 Extraindo informações do id_token...")
+                        id_claims = self._decode_id_token(id_token)
+
+                        if id_claims:
+                            # Extrair campos do JWT (Cognito/Conta Azul)
+                            account_info = {
+                                "id": id_claims.get("sub", f"user_{secrets.token_hex(16)}"),
+                                "email": id_claims.get("email", "user@contaazul.com"),
+                                "name": id_claims.get("name", id_claims.get("cognito:username", "Usuário Conta Azul")),
+                                "companyName": id_claims.get("custom:company_name", "Empresa Conta Azul"),
+                                "_from_id_token": True,
+                                "_smoke_test_passed": True,
+                            }
+                            logger.info(f"✅ Informações extraídas do id_token: sub={id_claims.get('sub', 'N/A')}")
+                        else:
+                            logger.warning("⚠️  Falha ao decodificar id_token, usando fallback")
+                            account_info = self._create_fallback_account_info()
+                    else:
+                        logger.warning("⚠️  id_token não fornecido, usando dados fallback")
+                        account_info = self._create_fallback_account_info()
+
                     logger.info(
-                        f"✅ Informações da conta obtidas: "
-                        f"id={account_info.get('id')[:10]}..."
+                        f"✅ Account info preparado. ID: "
+                        f"{account_info.get('id')[:20]}..."
                     )
                     return account_info
 
@@ -300,6 +381,23 @@ class ContaAzulAuthService:
             import traceback
             logger.error(traceback.format_exc())
             return None
+
+    def _create_fallback_account_info(self) -> dict:
+        """
+        Cria informações de conta fallback quando id_token não está disponível.
+
+        Returns:
+            Dicionário com informações básicas geradas
+        """
+        return {
+            "id": f"conta_azul_user_{secrets.token_hex(16)}",
+            "email": "user@contaazul.com",
+            "name": "Usuário Conta Azul",
+            "companyName": "Empresa Conta Azul",
+            "_from_id_token": False,
+            "_smoke_test_passed": True,
+            "_warning": "Dados gerados - id_token não disponível",
+        }
 
     def save_tokens(
         self,
