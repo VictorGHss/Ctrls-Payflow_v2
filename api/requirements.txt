@@ -9,7 +9,7 @@ cryptography==43.0.3
 httpx==0.27.2
 
 # SMTP & Email
-python-multipart==0.0.9
+python-multipart==0.0.22
 
 # Retry
 tenacity==9.0.0
